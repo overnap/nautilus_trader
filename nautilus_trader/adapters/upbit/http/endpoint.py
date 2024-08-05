@@ -17,21 +17,21 @@ from typing import Any
 
 import msgspec
 
-from nautilus_trader.adapters.binance.common.enums import BinanceSecurityType
-from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
-from nautilus_trader.adapters.binance.common.symbol import BinanceSymbols
-from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
+from nautilus_trader.adapters.upbit.common.enums import UpbitSecurityType
+from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
+from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbols
+from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 
 
 def enc_hook(obj: Any) -> Any:
-    if isinstance(obj, BinanceSymbol) or isinstance(obj, BinanceSymbols):
+    if isinstance(obj, UpbitSymbol) or isinstance(obj, UpbitSymbols):
         return str(obj)  # serialize BinanceSymbol as string.
     else:
         raise TypeError(f"Objects of type {type(obj)} are not supported")
 
 
-class BinanceHttpEndpoint:
+class UpbitHttpEndpoint:
     """
     Base functionality of endpoints connecting to the Binance REST API.
 
@@ -43,8 +43,8 @@ class BinanceHttpEndpoint:
 
     def __init__(
         self,
-        client: BinanceHttpClient,
-        methods_desc: dict[HttpMethod, BinanceSecurityType],
+        client: UpbitHttpClient,
+        methods_desc: dict[HttpMethod, UpbitSecurityType],
         url_path: str,
     ):
         self.client = client
@@ -55,12 +55,10 @@ class BinanceHttpEndpoint:
         self.encoder = msgspec.json.Encoder(enc_hook=enc_hook)
 
         self._method_request = {
-            BinanceSecurityType.NONE: self.client.send_request,
-            BinanceSecurityType.USER_STREAM: self.client.send_request,
-            BinanceSecurityType.MARKET_DATA: self.client.send_request,
-            BinanceSecurityType.TRADE: self.client.sign_request,
-            BinanceSecurityType.MARGIN: self.client.sign_request,
-            BinanceSecurityType.USER_DATA: self.client.sign_request,
+            UpbitSecurityType.NONE: self.client.send_request,
+            UpbitSecurityType.MARKET_DATA: self.client.send_request,
+            UpbitSecurityType.TRADE: self.client.sign_request,
+            UpbitSecurityType.USER_DATA: self.client.sign_request,
         }
 
     async def _method(
@@ -68,6 +66,7 @@ class BinanceHttpEndpoint:
         method_type: HttpMethod,
         params: Any,
         ratelimiter_keys: list[str] | None = None,
+        add_path: str = "",  # TODO: 안좋은 패턴? 일단 편하니 사용
     ) -> bytes:
         payload: dict = self.decoder.decode(self.encoder.encode(params))
         if self.methods_desc[method_type] is None:
@@ -76,7 +75,7 @@ class BinanceHttpEndpoint:
             )
         raw: bytes = await self._method_request[self.methods_desc[method_type]](
             http_method=method_type,
-            url_path=self.url_path,
+            url_path=self.url_path + add_path,
             payload=payload,
             ratelimiter_keys=ratelimiter_keys,
         )

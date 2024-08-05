@@ -31,6 +31,7 @@ from nautilus_trader.core.nautilus_pyo3 import UUID4
 # TODO: 테스트 코드 작성
 # TODO: Upbit Symbol 작성
 # TODO: doc 작성
+# TODO: 코드 타입을 enum으로?
 # TODO: 오더북 모아보기 피쳐
 
 

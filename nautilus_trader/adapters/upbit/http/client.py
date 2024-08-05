@@ -129,7 +129,7 @@ class UpbitHttpClient:
         }
 
         jwt_token = jwt.encode(payload, self._secret)
-        return "Bearer " + jwt_token
+        return f"Bearer {jwt_token}"
 
     async def sign_request(
         self,

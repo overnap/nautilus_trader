@@ -39,14 +39,20 @@ from nautilus_trader.model.orders import Order
 
 
 @unique
-class BinanceRateLimitType(Enum):
+class UpbitWebSocketCodeType(Enum):
+    TICKER = "ticker"
+    TRADE = "trade"
+    ORDERBOOK = "orderbook"
+
+@unique
+class UpbitRateLimitType(Enum):
     """
     Represents a `Binance` rate limit type.
     """
 
-    REQUEST_WEIGHT = "REQUEST_WEIGHT"
-    ORDERS = "ORDERS"
-    RAW_REQUESTS = "RAW_REQUESTS"
+    ORDER = "ORDER"
+    GENERAL = "GENERAL"
+    WEBSOCKET = "WEBSOCKET"
 
 
 @unique
@@ -61,27 +67,50 @@ class BinanceRateLimitInterval(Enum):
 
 
 @unique
-class BinanceKlineInterval(Enum):
+class UpbitCandleInterval(Enum):
     """
     Represents a `Binance` kline chart interval.
     """
 
-    SECOND_1 = "1s"
-    MINUTE_1 = "1m"
-    MINUTE_3 = "3m"
-    MINUTE_5 = "5m"
-    MINUTE_15 = "15m"
-    MINUTE_30 = "30m"
-    HOUR_1 = "1h"
-    HOUR_2 = "2h"
-    HOUR_4 = "4h"
-    HOUR_6 = "6h"
-    HOUR_8 = "8h"
-    HOUR_12 = "12h"
-    DAY_1 = "1d"
-    DAY_3 = "3d"
-    WEEK_1 = "1w"
-    MONTH_1 = "1M"
+    MINUTE_1 = "minutes/1"
+    MINUTE_3 = "minutes/3"
+    MINUTE_5 = "minutes/5"
+    MINUTE_15 = "minutes/15"
+    MINUTE_10 = "minutes/10"
+    MINUTE_30 = "minutes/30"
+    MINUTE_60 = "minutes/60"
+    MINUTE_240 = "minutes/240"
+    DAY_1 = "days"
+    WEEK_1 = "weeks"
+    MONTH_1 = "months"
+
+@unique
+class UpbitOrderbookLevel(Enum):
+    """
+    Represents a `Binance` kline chart interval.
+    """
+
+    # TODO: str로 잘 작동하는지 확인 필요. 쿼리 명세 자체는 double임.
+    ZERO = "0"
+    PLUS_0 = "1"
+    PLUS_1 = "10"
+    PLUS_2 = "100"
+    PLUS_3 = "1000"
+    PLUS_4 = "10000"
+    PLUS_5 = "100000"
+    PLUS_6 = "1000000"
+    PLUS_7 = "10000000"
+    PLUS_8 = "100000000"
+    MINUS_0 = "-1"
+    MINUS_1 = "-10"
+    MINUS_2 = "-100"
+    MINUS_3 = "-1000"
+    MINUS_4 = "-10000"
+    MINUS_5 = "-100000"
+    MINUS_6 = "-1000000"
+    MINUS_7 = "-10000000"
+    MINUS_8 = "-100000000"
+
 
 
 @unique
@@ -233,16 +262,14 @@ class BinanceOrderType(Enum):
 
 
 @unique
-class BinanceSecurityType(Enum):
+class UpbitSecurityType(Enum):
     """
     Represents a `Binance` endpoint security type.
     """
 
     NONE = "NONE"
     TRADE = "TRADE"
-    MARGIN = "MARGIN"  # SPOT/MARGIN only
     USER_DATA = "USER_DATA"
-    USER_STREAM = "USER_STREAM"
     MARKET_DATA = "MARKET_DATA"
 
 

@@ -76,7 +76,7 @@ from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.objects import Quantity
 
 
-class BinanceCommonDataClient(LiveMarketDataClient):
+class UpbitDataClient(LiveMarketDataClient):
     """
     Provides a data client of common methods for the `Binance` exchange.
 
@@ -130,7 +130,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
     ) -> None:
         super().__init__(
             loop=loop,
-            client_id=ClientId(name or BINANCE_VENUE.value),
+            client_id=ClientId(name or BINANCE_VENUE.value),  # TODO: 수정
             venue=Venue(name or BINANCE_VENUE.value),
             msgbus=msgbus,
             cache=cache,
@@ -139,10 +139,6 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         )
 
         # Configuration
-        self._binance_account_type = account_type
-        self._use_agg_trade_ticks = config.use_agg_trade_ticks
-        self._log.info(f"Account type: {self._binance_account_type.value}", LogColor.BLUE)
-        self._log.info(f"{config.use_agg_trade_ticks=}", LogColor.BLUE)
 
         self._update_instrument_interval: int = 60 * 60  # Once per hour (hardcode)
         self._update_instruments_task: asyncio.Task | None = None

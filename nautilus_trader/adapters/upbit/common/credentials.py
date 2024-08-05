@@ -17,27 +17,9 @@ from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.env import get_env_key
 
 
-def get_api_key(account_type: BinanceAccountType, is_testnet: bool) -> str:
-    if is_testnet:
-        if account_type.is_spot_or_margin:
-            return get_env_key("BINANCE_TESTNET_API_KEY")
-        else:
-            return get_env_key("BINANCE_FUTURES_TESTNET_API_KEY")
-
-    if account_type.is_spot_or_margin:
-        return get_env_key("BINANCE_API_KEY")
-    else:
-        return get_env_key("BINANCE_FUTURES_API_KEY")
+def get_api_key() -> str:
+    return get_env_key("UPBIT_API_KEY")
 
 
-def get_api_secret(account_type: BinanceAccountType, is_testnet: bool) -> str:
-    if is_testnet:
-        if account_type.is_spot_or_margin:
-            return get_env_key("BINANCE_TESTNET_API_SECRET")
-        else:
-            return get_env_key("BINANCE_FUTURES_TESTNET_API_SECRET")
-
-    if account_type.is_spot_or_margin:
-        return get_env_key("BINANCE_API_SECRET")
-    else:
-        return get_env_key("BINANCE_FUTURES_API_SECRET")
+def get_api_secret() -> str:
+    return get_env_key("UPBIT_API_SECRET")

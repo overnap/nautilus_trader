@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 
-from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.core.correctness import PyCondition
 
 
@@ -26,44 +25,36 @@ from nautilus_trader.core.correctness import PyCondition
 ################################################################################
 
 
-class BinanceSymbol(str):
+class UpbitSymbol(str):
     """
     Binance compatible symbol.
     """
 
-    def __new__(cls, symbol: str) -> BinanceSymbol:  # noqa: PYI034
+    def __new__(cls, symbol: str) -> UpbitSymbol:  # noqa: PYI034
         PyCondition.valid_string(symbol, "symbol")
 
         # Format the string on construction to be Binance compatible
         return super().__new__(
             cls,
-            symbol.upper().replace(" ", "").replace("/", "").replace("-PERP", ""),
+            symbol.upper().replace(" ", "").replace("/", "")
         )
 
-    def parse_as_nautilus(self, account_type: BinanceAccountType) -> str:
-        if account_type.is_spot_or_margin:
-            return str(self)
-
-        # Parse Futures symbol
-        if self[-1].isdigit():
-            return str(self)  # Deliverable
-        if self.endswith("_PERP"):
-            return str(self).replace("_", "-")
-        else:
-            return str(self) + "-PERP"
+    def parse_as_nautilus(self) -> str:
+        return str(self)
 
 
-class BinanceSymbols(str):
+class UpbitSymbols(str):
     """
     Binance compatible list of symbols.
     """
 
-    def __new__(cls, symbols: list[str]) -> BinanceSymbols:  # noqa: PYI034
+    def __new__(cls, symbols: list[str]) -> UpbitSymbols:  # noqa: PYI034
         PyCondition.not_empty(symbols, "symbols")
 
-        binance_symbols: list[BinanceSymbol] = [BinanceSymbol(symbol) for symbol in symbols]
-        return super().__new__(cls, json.dumps(binance_symbols).replace(" ", ""))
+        upbit_symbols: list[UpbitSymbol] = [UpbitSymbol(symbol) for symbol in symbols]
+        return super().__new__(cls, json.dumps(upbit_symbols).replace(" ", "")[1:-1])
 
-    def parse_str_to_list(self) -> list[BinanceSymbol]:
-        binance_symbols: list[BinanceSymbol] = json.loads(self)
+    def parse_str_to_list(self) -> list[UpbitSymbol]:
+        binance_symbols: list[UpbitSymbol] = json.loads(f"{{{self}}}")  # TODO: 이 기괴한 문법 머임? 테스트 필요
         return binance_symbols
+

@@ -115,66 +115,21 @@ class BinanceSymbolFilter(msgspec.Struct):
     maxTrailingBelowDelta: int | None = None  # SPOT/MARGIN only
 
 
-class BinanceDepth(msgspec.Struct, frozen=True):
-    """
-    Schema of a binance orderbook depth.
-
-    GET response of `depth`.
-
-    """
-
-    lastUpdateId: int
-    bids: list[tuple[str, str]]
-    asks: list[tuple[str, str]]
-
-    symbol: str | None = None  # COIN-M FUTURES only
-    pair: str | None = None  # COIN-M FUTURES only
-
-    E: int | None = None  # FUTURES only, Message output time
-    T: int | None = None  # FUTURES only, Transaction time
-
-    def parse_to_order_book_snapshot(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
-    ) -> OrderBookDeltas:
-        bids = [
-            BookOrder(OrderSide.BUY, Price.from_str(o[0]), Quantity.from_str(o[1]), 0)
-            for o in self.bids or []
-        ]
-        asks = [
-            BookOrder(OrderSide.SELL, Price.from_str(o[0]), Quantity.from_str(o[1]), 0)
-            for o in self.asks or []
-        ]
-
-        deltas = [OrderBookDelta.clear(instrument_id, ts_init, ts_init, self.lastUpdateId)]
-        deltas += [
-            OrderBookDelta(
-                instrument_id,
-                BookAction.ADD,
-                o,
-                flags=0,
-                sequence=self.lastUpdateId or 0,
-                ts_event=ts_init,  # No event timestamp
-                ts_init=ts_init,
-            )
-            for o in bids + asks
-        ]
-        return OrderBookDeltas(instrument_id=instrument_id, deltas=deltas)
-
-
-class BinanceTrade(msgspec.Struct, frozen=True):
+class UpbitTrade(msgspec.Struct, frozen=True):
     """
     Schema of a single trade.
     """
 
-    id: int
-    price: str
-    qty: str
-    quoteQty: str
-    time: int
-    isBuyerMaker: bool
-    isBestMatch: bool | None = None  # SPOT/MARGIN only
+    market: str
+    trade_date_utc: str
+    trade_time_utc: str
+    timestamp: int
+    trade_price: str
+    trade_volume: str
+    prev_closing_price: str
+    change_price: str
+    ask_bid: str
+    sequential_id: int
 
     def parse_to_trade_tick(
         self,
@@ -184,67 +139,41 @@ class BinanceTrade(msgspec.Struct, frozen=True):
         """
         Parse Binance trade to internal TradeTick.
         """
+        # TODO: market이랑 instrument 비교?
         return TradeTick(
             instrument_id=instrument_id,
-            price=Price.from_str(self.price),
-            size=Quantity.from_str(self.qty),
-            aggressor_side=AggressorSide.SELLER if self.isBuyerMaker else AggressorSide.BUYER,
-            trade_id=TradeId(str(self.id)),
-            ts_event=millis_to_nanos(self.time),
+            price=Price.from_str(self.trade_price),
+            size=Quantity.from_str(self.trade_volume),
+            aggressor_side=AggressorSide.BUYER if self.ask_bid == "ASK" else AggressorSide.SELLER,
+            trade_id=TradeId(str(self.sequential_id)),
+            ts_event=millis_to_nanos(self.timestamp),
             ts_init=ts_init,
         )
 
 
-class BinanceAggTrade(msgspec.Struct, frozen=True):
+class UpbitCandle(msgspec.Struct, frozen=True):
     """
-    Schema of a single compressed aggregate trade.
-    """
-
-    a: int  # Aggregate tradeId
-    p: str  # Price
-    q: str  # Quantity
-    f: int  # First tradeId
-    l: int  # Last tradeId
-    T: int  # Timestamp
-    m: bool  # Was the buyer the maker?
-    M: bool | None = None  # SPOT/MARGIN only, was the trade the best price match?
-
-    def parse_to_trade_tick(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
-    ) -> TradeTick:
-        """
-        Parse Binance trade to internal TradeTick.
-        """
-        return TradeTick(
-            instrument_id=instrument_id,
-            price=Price.from_str(self.p),
-            size=Quantity.from_str(self.q),
-            aggressor_side=AggressorSide.SELLER if self.m else AggressorSide.BUYER,
-            trade_id=TradeId(str(self.a)),
-            ts_event=millis_to_nanos(self.T),
-            ts_init=ts_init,
-        )
-
-
-class BinanceKline(msgspec.Struct, array_like=True):
-    """
-    Array-like schema of single Binance kline.
+    Schema of single Upbit kline.
     """
 
-    open_time: int
-    open: str
-    high: str
-    low: str
-    close: str
-    volume: str
-    close_time: int
-    asset_volume: str
-    trades_count: int
-    taker_base_volume: str
-    taker_quote_volume: str
-    ignore: str
+    market: str
+    candle_date_time_utc: str
+    candle_date_time_kst: str
+    opening_price: str
+    high_price: str
+    low_price: str
+    trade_price: str  # closing price
+    timestamp: int
+    candle_acc_trade_price: str
+    candle_acc_trade_volume: str
+    unit: int | None = None  # Minute candle only
+    prev_closing_price: str | None = None  # Day candle only
+    change_price: str | None = None  # Day candle only
+    change_rate: str | None = None  # Day candle only
+    converted_trade_price: str | None = (
+        None  # Day candle only, request with `convertingPriceUnit` exclusively
+    )
+    first_day_of_period: str | None = None  # Week and Month candle only
 
     def parse_to_binance_bar(
         self,
@@ -256,77 +185,101 @@ class BinanceKline(msgspec.Struct, array_like=True):
         """
         return BinanceBar(
             bar_type=bar_type,
-            open=Price.from_str(self.open),
-            high=Price.from_str(self.high),
-            low=Price.from_str(self.low),
-            close=Price.from_str(self.close),
-            volume=Quantity.from_str(self.volume),
-            quote_volume=Decimal(self.asset_volume),
-            count=self.trades_count,
-            taker_buy_base_volume=Decimal(self.taker_base_volume),
-            taker_buy_quote_volume=Decimal(self.taker_quote_volume),
-            ts_event=millis_to_nanos(self.close_time),
+            open=Price.from_str(self.opening_price),
+            high=Price.from_str(self.high_price),
+            low=Price.from_str(self.low_price),
+            close=Price.from_str(self.trade_price),
+            volume=Quantity.from_str(self.candle_acc_trade_volume),
+            quote_volume=Decimal(self.candle_acc_trade_price),
+            count=1,  # FIXME: 임시로 거래가 1번만 일어난 캔들로 취급! 수정 필요
+            taker_buy_base_volume=Decimal(self.candle_acc_trade_volume),
+            taker_buy_quote_volume=Decimal(
+                self.candle_acc_trade_price
+            ),  # FIXME: 임시로 taker만 있는 거래로 취급! 수정 필요
+            ts_event=millis_to_nanos(
+                self.candle_date_time_utc
+            ),  # TODO: 봉 완성 시간인거 확인 했으나 한번더 확인 필요
             ts_init=ts_init,
-        )
+        )  # TODO: BinanceBar가 별로 중요한 타입이 아니면 직접 만들기.
 
 
-class BinanceTicker24hr(msgspec.Struct, frozen=True):
+class UpbitTicker(msgspec.Struct, frozen=True):
     """
-    Schema of single Binance 24hr ticker (FULL/MINI).
-    """
-
-    symbol: str | None
-    lastPrice: str | None
-    openPrice: str | None
-    highPrice: str | None
-    lowPrice: str | None
-    volume: str | None
-    openTime: int | None
-    closeTime: int | None
-    firstId: int | None
-    lastId: int | None
-    count: int | None
-
-    priceChange: str | None = None  # FULL response only (SPOT/MARGIN)
-    priceChangePercent: str | None = None  # FULL response only (SPOT/MARGIN)
-    weightedAvgPrice: str | None = None  # FULL response only (SPOT/MARGIN)
-    lastQty: str | None = None  # FULL response only (SPOT/MARGIN)
-
-    prevClosePrice: str | None = None  # SPOT/MARGIN only
-    bidPrice: str | None = None  # SPOT/MARGIN only
-    bidQty: str | None = None  # SPOT/MARGIN only
-    askPrice: str | None = None  # SPOT/MARGIN only
-    askQty: str | None = None  # SPOT/MARGIN only
-
-    pair: str | None = None  # COIN-M FUTURES only
-    baseVolume: str | None = None  # COIN-M FUTURES only
-
-    quoteVolume: str | None = None  # SPOT/MARGIN & USD-M FUTURES only
-
-
-class BinanceTickerPrice(msgspec.Struct, frozen=True):
-    """
-    Schema of single Binance Price Ticker.
+    Schema of single Upbit ticker.
+    `trade_*` means most recent data.
     """
 
-    symbol: str | None
-    price: str | None
-    time: int | None = None  # FUTURES only
-    ps: str | None = None  # COIN-M FUTURES only, pair
+    market: str
+    trade_date: str
+    trade_time: str
+    trade_date_kst: str
+    trade_time_kst: str
+    trade_timestamp: int
+    opening_price: str
+    high_price: str
+    low_price: str
+    trade_price: str  # closing price
+    prev_closing_price: str  # Criteria for `*change*` fields
+    change: str  # EVEN | RISE | FALL
+    change_price: str
+    change_rate: str
+    signed_change_price: str
+    signed_change_rate: str
+    trade_volume: str
+    acc_trade_price: str  # From UTC 0h
+    acc_trade_price_24h: str
+    acc_trade_volume: str  # From UTC 0h
+    acc_trade_volume_24h: str
+    highest_52_week_price: str
+    highest_52_week_date: str
+    lowest_52_week_price: str
+    lowest_52_week_date: str
+    timestamp: int
 
 
-class BinanceTickerBook(msgspec.Struct, frozen=True):
+class UpbitOrderbookUnit(msgspec.Struct, frozen=True):
     """
-    Schema of a single Binance Order Book Ticker.
+    Schema for individual unit of Upbit orderbook. (HTTP)
     """
 
-    symbol: str | None
-    bidPrice: str | None
-    bidQty: str | None
-    askPrice: str | None
-    askQty: str | None
-    pair: str | None = None  # USD-M FUTURES only
-    time: int | None = None  # FUTURES only, transaction time
+    ask_price: str
+    bid_price: str
+    ask_size: str
+    bid_size: str
+
+
+class UpbitOrderbook(msgspec.Struct, frozen=True):
+    """
+    Schema for Upbit orderbook. (HTTP)
+    """
+
+    market: str
+    timestamp: int
+    total_ask_size: str
+    total_bid_size: str
+    orderbook_units: list[UpbitOrderbookUnit]
+    level: str
+
+    def parse_to_order_book_snapshot(
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
+    ) -> OrderBookDeltas:
+        ts_event: int = millis_to_nanos(self.timestamp)
+        bids: list[BookOrder] = [
+            BookOrder(OrderSide.BUY, Price.from_str(o.bid_price), Quantity.from_str(o.bid_size), 0)
+            for o in self.orderbook_units
+        ]
+        asks: list[BookOrder] = [
+            BookOrder(OrderSide.SELL, Price.from_str(o.ask_price), Quantity.from_str(o.ask_size), 0)
+            for o in self.orderbook_units
+        ]
+
+        deltas = [OrderBookDelta.clear(instrument_id, ts_init, ts_event)]
+        deltas += [
+            OrderBookDelta(instrument_id, BookAction.ADD, o, ts_event, ts_init) for o in bids + asks
+        ]
+        return OrderBookDeltas(instrument_id=instrument_id, deltas=deltas)
 
 
 ################################################################################
