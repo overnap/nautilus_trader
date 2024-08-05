@@ -14,7 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 import hashlib
-import hmac
+import jwt  # TODO: 의존성 제거
 import urllib.parse
 from typing import Any
 
@@ -30,9 +30,10 @@ from nautilus_trader.core.nautilus_pyo3 import HttpClient
 from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 from nautilus_trader.core.nautilus_pyo3 import HttpResponse
 from nautilus_trader.core.nautilus_pyo3 import Quota
+from nautilus_trader.core.uuid import UUID4
 
 
-class BinanceHttpClient:
+class UpbitHttpClient:
     """
     Provides a `Binance` asynchronous HTTP client.
 
@@ -65,13 +66,12 @@ class BinanceHttpClient:
         self._clock: LiveClock = clock
         self._log: Logger = Logger(type(self).__name__)
         self._key: str = key
+        self._secret: str = secret
 
         self._base_url: str = base_url
-        self._secret: str = secret
         self._headers: dict[str, Any] = {
-            "Content-Type": "application/json",
+            "Content-Type": "application/json; charset=utf-8",
             "User-Agent": nautilus_trader.USER_AGENT,
-            "X-MBX-APIKEY": key,
         }
         self._client = HttpClient(
             keyed_quotas=ratelimiter_quotas or [],
@@ -118,9 +118,18 @@ class BinanceHttpClient:
         # Encode a dict into a URL query string
         return urllib.parse.urlencode(params)
 
-    def _get_sign(self, data: str) -> str:
-        m = hmac.new(self._secret.encode(), data.encode(), hashlib.sha256)
-        return m.hexdigest()
+    def _get_auth(self, data: str) -> str:
+        m = hashlib.sha512()
+        m.update(data.encode())
+
+        payload = {
+            "access_token": self._key,
+            "nonce": UUID4().to_str(),
+            "query_hash": m.hexdigest(),
+        }
+
+        jwt_token = jwt.encode(payload, self._secret)
+        return "Bearer " + jwt_token
 
     async def sign_request(
         self,
@@ -132,13 +141,15 @@ class BinanceHttpClient:
         if payload is None:
             payload = {}
         query_string = self._prepare_params(payload)
-        signature = self._get_sign(query_string)
-        payload["signature"] = signature
+        auth_headers = self._headers.copy()
+        auth_headers["Authorization"] = self._get_auth(query_string)
+
         return await self.send_request(
             http_method,
             url_path,
             payload=payload,
             ratelimiter_keys=ratelimiter_keys,
+            auth_headers=auth_headers,
         )
 
     async def send_request(
@@ -147,6 +158,7 @@ class BinanceHttpClient:
         url_path: str,
         payload: dict[str, str] | None = None,
         ratelimiter_keys: list[str] | None = None,
+        auth_headers: dict[str, Any] | None = None,
     ) -> bytes:
         if payload:
             url_path += "?" + urllib.parse.urlencode(payload)
@@ -157,7 +169,7 @@ class BinanceHttpClient:
         response: HttpResponse = await self._client.request(
             http_method,
             url=self._base_url + url_path,
-            headers=self._headers,
+            headers=auth_headers if auth_headers is not None else self._headers,
             body=msgspec.json.encode(payload) if payload else None,
             keys=ratelimiter_keys,
         )

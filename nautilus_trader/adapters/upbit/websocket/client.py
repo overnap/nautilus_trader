@@ -27,7 +27,7 @@ from nautilus_trader.core.nautilus_pyo3 import WebSocketClient
 from nautilus_trader.core.nautilus_pyo3 import WebSocketConfig
 from nautilus_trader.core.nautilus_pyo3 import UUID4
 
-# TODO: 함수 피쳐들 치기
+# TODO: 함수 피쳐들 치기 (완)
 # TODO: 테스트 코드 작성
 # TODO: Upbit Symbol 작성
 # TODO: doc 작성
