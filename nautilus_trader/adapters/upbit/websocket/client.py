@@ -29,6 +29,8 @@ from nautilus_trader.core.nautilus_pyo3 import UUID4
 
 # TODO: 함수 피쳐들 치기
 # TODO: 테스트 코드 작성
+# TODO: Upbit Symbol 작성
+# TODO: doc 작성
 # TODO: 오더북 모아보기 피쳐
 
 
@@ -40,7 +42,7 @@ class UpbitWebSocketClient:
     ----------
     clock : LiveClock
         The clock for the client.
-    base_url : str
+    url : str
         The base URL for the WebSocket connection.
     handler : Callable[[bytes], None]
         The callback handler for message events.
@@ -110,7 +112,7 @@ class UpbitWebSocketClient:
         bool
 
         """
-        return bool(self._codes)
+        return bool(self._codes["ticker"] or self._codes["trade"] or self._codes["orderbook"])
 
     async def connect(self) -> None:
         """
@@ -187,25 +189,6 @@ class UpbitWebSocketClient:
         """
         await self._unsubscribe(code_type, code)
 
-    async def subscribe_agg_trades(self, symbol: str) -> None:
-        """
-        Subscribe to aggregate trade stream.
-
-        The Aggregate Trade Streams push trade information that is aggregated for a single taker order.
-        Stream Name: <symbol>@aggTrade
-        Update Speed: Real-time
-
-        """
-        stream = f"{BinanceSymbol(symbol).lower()}@aggTrade"
-        await self._subscribe(stream)
-
-    async def unsubscribe_agg_trades(self, symbol: str) -> None:
-        """
-        Unsubscribe from aggregate trade stream.
-        """
-        stream = f"{BinanceSymbol(symbol).lower()}@aggTrade"
-        await self._unsubscribe(stream)
-
     async def subscribe_trades(self, symbol: str) -> None:
         """
         Subscribe to trade stream.
@@ -215,97 +198,15 @@ class UpbitWebSocketClient:
         Update Speed: Real-time
 
         """
-        stream = f"{BinanceSymbol(symbol).lower()}@trade"
-        await self._subscribe(stream)
+        await self._subscribe("trade", symbol)
 
     async def unsubscribe_trades(self, symbol: str) -> None:
         """
         Unsubscribe from trade stream.
         """
-        stream = f"{BinanceSymbol(symbol).lower()}@trade"
-        await self._unsubscribe(stream)
+        await self._unsubscribe("trade", symbol)
 
-    async def subscribe_bars(
-        self,
-        symbol: str,
-        interval: str,
-    ) -> None:
-        """
-        Subscribe to bar (kline/candlestick) stream.
-
-        The Kline/Candlestick Stream push updates to the current klines/candlestick every second.
-        Stream Name: <symbol>@kline_<interval>
-        interval:
-        m -> minutes; h -> hours; d -> days; w -> weeks; M -> months
-        - 1m
-        - 3m
-        - 5m
-        - 15m
-        - 30m
-        - 1h
-        - 2h
-        - 4h
-        - 6h
-        - 8h
-        - 12h
-        - 1d
-        - 3d
-        - 1w
-        - 1M
-        Update Speed: 2000ms
-
-        """
-        stream = f"{BinanceSymbol(symbol).lower()}@kline_{interval}"
-        await self._subscribe(stream)
-
-    async def unsubscribe_bars(
-        self,
-        symbol: str,
-        interval: str,
-    ) -> None:
-        """
-        Unsubscribe from bar (kline/candlestick) stream.
-        """
-        stream = f"{BinanceSymbol(symbol).lower()}@kline_{interval}"
-        await self._unsubscribe(stream)
-
-    async def subscribe_mini_ticker(
-        self,
-        symbol: str | None = None,
-    ) -> None:
-        """
-        Subscribe to individual symbol or all symbols mini ticker stream.
-
-        24hr rolling window mini-ticker statistics.
-        These are NOT the statistics of the UTC day, but a 24hr rolling window for the previous 24hrs
-        Stream Name: <symbol>@miniTicker or
-        Stream Name: !miniTicker@arr
-        Update Speed: 1000ms
-
-        """
-        if symbol is None:
-            stream = "!miniTicker@arr"
-        else:
-            stream = f"{BinanceSymbol(symbol).lower()}@miniTicker"
-        await self._subscribe(stream)
-
-    async def unsubscribe_mini_ticker(
-        self,
-        symbol: str | None = None,
-    ) -> None:
-        """
-        Unsubscribe to individual symbol or all symbols mini ticker stream.
-        """
-        if symbol is None:
-            stream = "!miniTicker@arr"
-        else:
-            stream = f"{BinanceSymbol(symbol).lower()}@miniTicker"
-        await self._unsubscribe(stream)
-
-    async def subscribe_ticker(
-        self,
-        symbol: str | None = None,
-    ) -> None:
+    async def subscribe_ticker(self, symbol: str) -> None:
         """
         Subscribe to individual symbol or all symbols ticker stream.
 
@@ -316,144 +217,68 @@ class UpbitWebSocketClient:
         Update Speed: 1000ms
 
         """
-        if symbol is None:
-            stream = "!ticker@arr"
-        else:
-            stream = f"{BinanceSymbol(symbol).lower()}@ticker"
-        await self._subscribe(stream)
+        await self._subscribe("ticker", symbol)
 
-    async def unsubscribe_ticker(
-        self,
-        symbol: str | None = None,
-    ) -> None:
+    async def unsubscribe_ticker(self, symbol: str) -> None:
         """
         Unsubscribe from individual symbol or all symbols ticker stream.
         """
-        if symbol is None:
-            stream = "!ticker@arr"
-        else:
-            stream = f"{BinanceSymbol(symbol).lower()}@ticker"
-        await self._unsubscribe(stream)
+        await self._unsubscribe("ticker", symbol)
 
-    async def subscribe_book_ticker(
-        self,
-        symbol: str | None = None,
-    ) -> None:
+    async def subscribe_orderbook(self, symbol: str) -> None:
         """
-        Subscribe to individual symbol or all book tickers stream.
+        Subscribe to individual symbol or all symbols ticker stream.
 
-        Pushes any update to the best bid or ask's price or quantity in real-time for a specified symbol.
-        Stream Name: <symbol>@bookTicker or
-        Stream Name: !bookTicker
-        Update Speed: realtime
+        24hr rolling window ticker statistics for a single symbol.
+        These are NOT the statistics of the UTC day, but a 24hr rolling window for the previous 24hrs.
+        Stream Name: <symbol>@ticker or
+        Stream Name: !ticker@arr
+        Update Speed: 1000ms
 
         """
-        if symbol is None:
-            stream = "!bookTicker"
-        else:
-            stream = f"{BinanceSymbol(symbol).lower()}@bookTicker"
-        await self._subscribe(stream)
+        await self._subscribe("orderbook", symbol)
 
-    async def unsubscribe_book_ticker(
-        self,
-        symbol: str | None = None,
-    ) -> None:
+    async def unsubscribe_orderbook(self, symbol: str) -> None:
         """
-        Unsubscribe from individual symbol or all book tickers.
+        Unsubscribe from individual symbol or all symbols ticker stream.
         """
-        if symbol is None:
-            stream = "!bookTicker"
-        else:
-            stream = f"{BinanceSymbol(symbol).lower()}@bookTicker"
-        await self._unsubscribe(stream)
+        await self._unsubscribe("orderbook", symbol)
 
-    async def subscribe_partial_book_depth(
-        self,
-        symbol: str,
-        depth: int,
-        speed: int,
-    ) -> None:
+    async def subscribe_orderbook_unit(self, symbol: str, unit: int) -> None:
         """
-        Subscribe to partial book depth stream.
+        Subscribe to individual symbol or all symbols ticker stream.
 
-        Top bids and asks, Valid are 5, 10, or 20.
-        Stream Names: <symbol>@depth<levels> OR <symbol>@depth<levels>@100ms.
-        Update Speed: 1000ms or 100ms
+        24hr rolling window ticker statistics for a single symbol.
+        These are NOT the statistics of the UTC day, but a 24hr rolling window for the previous 24hrs.
+        Stream Name: <symbol>@ticker or
+        Stream Name: !ticker@arr
+        Update Speed: 1000ms
 
         """
-        stream = f"{BinanceSymbol(symbol).lower()}@depth{depth}@{speed}ms"
-        await self._subscribe(stream)
+        if not 1 <= unit <= 15:
+            raise ValueError(f"`unit` must be between 1 and 15, was {unit}")
+        await self.subscribe_orderbook(symbol + "." + str(unit))
 
-    async def unsubscribe_partial_book_depth(
-        self,
-        symbol: str,
-        depth: int,
-        speed: int,
-    ) -> None:
+    async def unsubscribe_orderbook_unit(self, symbol: str, unit: int) -> None:
         """
-        Unsubscribe from partial book depth stream.
+        Unsubscribe from individual symbol or all symbols ticker stream.
         """
-        stream = f"{BinanceSymbol(symbol).lower()}@depth{depth}@{speed}ms"
-        await self._subscribe(stream)
+        if not 1 <= unit <= 15:
+            raise ValueError(f"`unit` must be between 1 and 15, was {unit}")
+        await self.unsubscribe_orderbook(symbol + "." + str(unit))
 
-    async def subscribe_diff_book_depth(
-        self,
-        symbol: str,
-        speed: int,
-    ) -> None:
+    async def subscribe_orderbook_level(self, symbol: str, unit: int) -> None:
         """
-        Subscribe to diff book depth stream.
-
-        Stream Name: <symbol>@depth OR <symbol>@depth@100ms
-        Update Speed: 1000ms or 100ms
-        Order book price and quantity depth updates used to locally manage an order book.
+        See https://docs.upbit.com/reference/websocket-orderbook#request
 
         """
-        stream = f"{BinanceSymbol(symbol).lower()}@depth@{speed}ms"
-        await self._subscribe(stream)
+        raise NotImplementedError
 
-    async def unsubscribe_diff_book_depth(
-        self,
-        symbol: str,
-        speed: int,
-    ) -> None:
+    async def unsubscribe_orderbook_level(self, symbol: str, unit: int) -> None:
         """
-        Unsubscribe from diff book depth stream.
+        Unsubscribe from individual symbol or all symbols ticker stream.
         """
-        stream = f"{BinanceSymbol(symbol).lower()}@depth@{speed}ms"
-        await self._unsubscribe(stream)
-
-    async def subscribe_mark_price(
-        self,
-        symbol: str | None = None,
-        speed: int | None = None,
-    ) -> None:
-        """
-        Subscribe to aggregate mark price stream.
-        """
-        if speed not in (1000, 3000):
-            raise ValueError(f"`speed` options are 1000ms or 3000ms only, was {speed}")
-        if symbol is None:
-            stream = "!markPrice@arr"
-        else:
-            stream = f"{BinanceSymbol(symbol).lower()}@markPrice@{int(speed / 1000)}s"
-        await self._subscribe(stream)
-
-    async def unsubscribe_mark_price(
-        self,
-        symbol: str | None = None,
-        speed: int | None = None,
-    ) -> None:
-        """
-        Unsubscribe from aggregate mark price stream.
-        """
-        if speed not in (1000, 3000):
-            raise ValueError(f"`speed` options are 1000ms or 3000ms only, was {speed}")
-        if symbol is None:
-            stream = "!markPrice@arr"
-        else:
-            stream = f"{BinanceSymbol(symbol).lower()}@markPrice@{int(speed / 1000)}s"
-        await self._unsubscribe(stream)
+        raise NotImplementedError
 
     async def _subscribe(self, code_type: str, code: str) -> None:
         if code_type not in ("ticker", "trade", "orderbook"):
