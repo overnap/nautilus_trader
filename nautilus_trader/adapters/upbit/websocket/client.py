@@ -308,7 +308,6 @@ class UpbitWebSocketClient:
             return
 
         message = self._create_subscribe_msg()
-        print(message)
         self._log.debug(f"SENDING: {message}")
 
         await self._client.send_text(json.dumps(message))
