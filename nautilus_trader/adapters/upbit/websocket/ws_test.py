@@ -21,5 +21,5 @@ async def test_upbit_websocket_client():
     await client.connect()
     await client._subscribe("ticker", "KRW-BTC")
 
-    await asyncio.sleep(4)
+    await asyncio.sleep(10)
     await client.disconnect()

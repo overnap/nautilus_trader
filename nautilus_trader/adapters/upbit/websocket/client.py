@@ -308,6 +308,7 @@ class UpbitWebSocketClient:
             return
 
         message = self._create_subscribe_msg()
+        print(message)
         self._log.debug(f"SENDING: {message}")
 
         await self._client.send_text(json.dumps(message))
@@ -330,23 +331,29 @@ class UpbitWebSocketClient:
 
     def _create_subscribe_msg(self) -> list[dict[str, Any]]:
         message = [
-            {
-                "ticket": self._ticket.value,
-            },
-            {
-                "type": "ticker",
-                "codes": self._codes["ticker"],
-            },
-            {
-                "type": "trade",
-                "codes": self._codes["trade"],
-            },
-            {
-                "type": "orderbook",
-                "codes": self._codes["orderbook"],
-            },
-            {
-                "format": "SIMPLE",
-            },
+            {"ticket": self._ticket.value},
+            # {"format": "SIMPLE"},  # TODO: 실제 받을땐 심플 포맷으로 변경
         ]
+        if self._codes["ticker"]:
+            message.append(
+                {
+                    "type": "ticker",
+                    "codes": self._codes["ticker"],
+                }
+            )
+        if self._codes["trade"]:
+            message.append(
+                {
+                    "type": "trade",
+                    "codes": self._codes["trade"],
+                }
+            )
+        if self._codes["orderbook"]:
+            message.append(
+                {
+                    "type": "orderbook",
+                    "codes": self._codes["orderbook"],
+                }
+            )
+
         return message
