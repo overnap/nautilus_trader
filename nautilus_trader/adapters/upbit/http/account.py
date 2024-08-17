@@ -24,15 +24,15 @@ from nautilus_trader.adapters.binance.common.enums import BinanceSecurityType
 from nautilus_trader.adapters.binance.common.enums import BinanceTimeInForce
 from nautilus_trader.adapters.binance.common.schemas.account import BinanceOrder
 from nautilus_trader.adapters.binance.common.schemas.account import BinanceUserTrade
-from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
-from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
-from nautilus_trader.adapters.binance.http.endpoint import BinanceHttpEndpoint
+from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
+from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
+from nautilus_trader.adapters.upbit.http.endpoint import UpbitHttpEndpoint
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 
 
-class BinanceOrderHttp(BinanceHttpEndpoint):
+class UpbitOrderHttp(UpbitHttpEndpoint):
     """
     Endpoint for managing orders.
 

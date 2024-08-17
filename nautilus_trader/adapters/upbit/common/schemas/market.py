@@ -132,9 +132,9 @@ class UpbitTrade(msgspec.Struct, frozen=True):
     sequential_id: int
 
     def parse_to_trade_tick(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
+            self,
+            instrument_id: InstrumentId,
+            ts_init: int,
     ) -> TradeTick:
         """
         Parse Binance trade to internal TradeTick.
@@ -176,9 +176,9 @@ class UpbitCandle(msgspec.Struct, frozen=True):
     first_day_of_period: str | None = None  # Week and Month candle only
 
     def parse_to_binance_bar(
-        self,
-        bar_type: BarType,
-        ts_init: int,
+            self,
+            bar_type: BarType,
+            ts_init: int,
     ) -> BinanceBar:
         """
         Parse kline to BinanceBar.
@@ -261,9 +261,9 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
     level: str
 
     def parse_to_order_book_snapshot(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
+            self,
+            instrument_id: InstrumentId,
+            ts_init: int,
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.timestamp)
         bids: list[BookOrder] = [
@@ -286,14 +286,158 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
 # WebSocket messages
 ################################################################################
 
+# TODO: 축약형으로 쓰고싶은데 as (ask size) 예약어걸림. rename 어케쓰는건지 확인
 
-class BinanceDataMsgWrapper(msgspec.Struct):
+class UpbitWebSocketMsg(msgspec.Struct):
     """
     Provides a wrapper for data WebSocket messages from `Binance`.
     """
 
-    stream: str | None = None
-    id: int | None = None
+    type: str
+
+
+class UpbitWebSocketTicker(msgspec.Struct):
+    """
+    Provides a wrapper for data WebSocket messages from `Binance`.
+    """
+
+    type: str  # 타입 (ticker : 현재가)
+    code: str  # 마켓 코드 (ex. KRW-BTC)
+    opening_price: str  # 시가
+    high_price: str  # 고가
+    low_price: str  # 저가
+    trade_price: str  # 현재가
+    prev_closing_price: str  # 전일 종가
+    change: str  # 전일 대비 (RISE : 상승, EVEN : 보합, FALL : 하락)
+    change_price: str  # 부호 없는 전일 대비 값
+    signed_change_price: str  # 전일 대비 값
+    change_rate: str  # 부호 없는 전일 대비 등락율
+    signed_change_rate: str  # 전일 대비 등락율
+    trade_volume: str  # 가장 최근 거래량
+    acc_trade_volume: str  # 누적 거래량 (UTC 0시 기준)
+    acc_trade_volume_24h: str  # 24시간 누적 거래량
+    acc_trade_price: str  # 누적 거래대금 (UTC 0시 기준)
+    acc_trade_price_24h: str  # 24시간 누적 거래대금
+    trade_date: str  # 최근 거래 일자 (UTC) (yyyyMMdd)
+    trade_time: str  # 최근 거래 시각 (UTC) (HHmmss)
+    trade_timestamp: int  # 체결 타임스탬프 (milliseconds)
+    ask_bid: str  # 매수/매도 구분 (ASK : 매도, BID : 매수)
+    acc_ask_volume: str  # 누적 매도량
+    acc_bid_volume: str  # 누적 매수량
+    highest_52_week_price: str  # 52주 최고가
+    highest_52_week_date: str  # 52주 최고가 달성일 (yyyy-MM-dd)
+    lowest_52_week_price: str  # 52주 최저가
+    lowest_52_week_date: str  # 52주 최저가 달성일 (yyyy-MM-dd)
+    market_state: str  # 거래상태 (PREVIEW : 입금지원, ACTIVE : 거래지원가능, DELISTED : 거래지원종료)
+    delisting_date: str  # 거래지원 종료일
+    market_warning: str  # 유의 종목 여부 (NONE : 해당없음, CAUTION : 투자유의)
+    timestamp: int  # 타임스탬프 (millisecond)
+    stream_type: str  # 스트림 타입 (SNAPSHOT : 스냅샷, REALTIME : 실시간)
+
+
+class UpbitWebSocketTrade(msgspec.Struct):
+    """
+    Provides a wrapper for data WebSocket messages from `Binance`.
+    """
+
+    type: str  # 타입
+    code: str  # 마켓 코드 (ex. KRW-BTC)
+    trade_price: str  # 체결 가격
+    trade_volume: str  # 체결량
+    ask_bid: str  # 매수/매도 구분
+    prev_closing_price: str  # 전일 종가
+    change: str  # 전일 대비
+    change_price: str  # 부호 없는 전일 대비 값
+    trade_date: str  # 체결 일자 (UTC 기준)
+    trade_time: str  # 체결 시각 (UTC 기준)
+    trade_timestamp: int  # 체결 타임스탬프 (millisecond)
+    timestamp: int  # 타임스탬프 (millisecond)
+    sequential_id: int  # 체결 번호 (Unique)
+    stream_type: str  # 스트림 타입
+
+
+class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
+    """
+    Schema for Upbit orderbook. (HTTP)
+    """
+
+    type: str  # 타입 (orderbook : 호가)
+    code: str  # 마켓 코드 (ex. KRW-BTC)
+    total_ask_size: str  # 호가 매도 총 잔량
+    total_bid_size: str  # 호가 매수 총 잔량
+    orderbook_units: list[UpbitOrderbookUnit]  # 호가 (List of Objects)
+    timestamp: int  # 타임스탬프 (millisecond)
+    level: str  # 호가 모아보기 단위 (default: 0)
+
+    def parse_to_order_book_snapshot(
+            self,
+            instrument_id: InstrumentId,
+            ts_init: int,
+    ) -> OrderBookDeltas:
+        ts_event: int = millis_to_nanos(self.timestamp)
+        bids: list[BookOrder] = [
+            BookOrder(OrderSide.BUY, Price.from_str(o.bid_price), Quantity.from_str(o.bid_size), 0)
+            for o in self.orderbook_units
+        ]
+        asks: list[BookOrder] = [
+            BookOrder(OrderSide.SELL, Price.from_str(o.ask_price), Quantity.from_str(o.ask_size), 0)
+            for o in self.orderbook_units
+        ]
+
+        deltas = [OrderBookDelta.clear(instrument_id, ts_init, ts_event)]
+        deltas += [
+            OrderBookDelta(instrument_id, BookAction.ADD, o, ts_event, ts_init) for o in bids + asks
+        ]
+        return OrderBookDeltas(instrument_id=instrument_id, deltas=deltas)
+
+
+class UpbitWebSocketOrder(msgspec.Struct):
+    """
+    Provides a wrapper for data WebSocket messages from `Binance`.
+    """
+
+    type: str  # 타입 (myOrder : 내 주문)
+    code: str  # 마켓 코드 (ex. KRW-BTC)
+    uuid: str  # 주문 고유 아이디
+    ask_bid: str  # 매수/매도 구분 (ASK : 매도, BID : 매수)
+    order_type: str  # 주문 타입 (limit: 지정가 주문, price: 시장가 매수, market: 시장가 매도, best: 최유리 지정가)
+    state: str  # 주문 상태 (wait: 체결 대기, watch: 예약 대기, trade: 체결 발생, done: 완료, cancel: 취소)
+    trade_uuid: str  # 체결의 고유 아이디
+    price: str  # 주문 가격 또는 체결 가격 (state가 trade일 때)
+    avg_price: str  # 평균 체결 가격
+    volume: str  # 주문량 또는 체결량 (state가 trade일 때)
+    remaining_volume: str  # 체결 후 남은 주문 양
+    executed_volume: str  # 체결된 양
+    trades_count: int  # 해당 주문에 걸린 체결 수
+    reserved_fee: str  # 수수료로 예약된 비용
+    remaining_fee: str  # 남은 수수료
+    paid_fee: str  # 사용된 수수료
+    locked: str  # 거래에 사용 중인 비용
+    executed_funds: str  # 체결된 금액
+    time_in_force: str  # IOC, FOK 설정 (ioc, fok)
+    trade_timestamp: int  # 체결 타임스탬프 (millisecond)
+    order_timestamp: int  # 주문 타임스탬프 (millisecond)
+    timestamp: int  # 타임스탬프 (millisecond)
+    stream_type: str  # 스트림 타입 (REALTIME : 실시간)
+
+
+class UpbitWebSocketAssetUnit:
+    currency: str  # 화폐를 의미하는 영문 대문자 코드
+    balance: str  # 주문가능 수량
+    locked: str  # 주문 중 묶여있는 수량
+
+
+class UpbitWebSocketAsset(msgspec.Struct):
+    """
+    Provides a wrapper for data WebSocket messages from `Binance`.
+    """
+
+    type: str  # 타입 (myAsset : 내 자산)
+    asset_uuid: str  # 자산 고유 아이디
+    timestamp: int  # 타임스탬프 (millisecond)
+    asset_timestamp: int  # 자산 타임스탬프 (millisecond)
+    stream_type: str  # 스트림 타입 (REALTIME : 실시간)
+    assets: list[UpbitWebSocketAssetUnit]
 
 
 class BinanceOrderBookDelta(msgspec.Struct, array_like=True):
@@ -305,12 +449,12 @@ class BinanceOrderBookDelta(msgspec.Struct, array_like=True):
     size: str
 
     def parse_to_order_book_delta(
-        self,
-        instrument_id: InstrumentId,
-        side: OrderSide,
-        ts_event: int,
-        ts_init: int,
-        update_id: int,
+            self,
+            instrument_id: InstrumentId,
+            side: OrderSide,
+            ts_event: int,
+            ts_init: int,
+            update_id: int,
     ) -> OrderBookDelta:
         size = Quantity.from_str(self.size)
         order = BookOrder(
@@ -352,9 +496,9 @@ class BinanceOrderBookData(msgspec.Struct, frozen=True):
     ps: str | None = None  # COIN-M FUTURES only, pair
 
     def parse_to_order_book_deltas(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
+            self,
+            instrument_id: InstrumentId,
+            ts_init: int,
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.T) if self.T is not None else millis_to_nanos(self.E)
 
@@ -382,9 +526,9 @@ class BinanceOrderBookData(msgspec.Struct, frozen=True):
         return OrderBookDeltas(instrument_id=instrument_id, deltas=bid_deltas + ask_deltas)
 
     def parse_to_order_book_snapshot(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
+            self,
+            instrument_id: InstrumentId,
+            ts_init: int,
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.T)
         bids: list[BookOrder] = [
@@ -429,9 +573,9 @@ class BinanceQuoteData(msgspec.Struct, frozen=True):
     T: int | None = None  # event time
 
     def parse_to_quote_tick(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
+            self,
+            instrument_id: InstrumentId,
+            ts_init: int,
     ) -> QuoteTick:
         return QuoteTick(
             instrument_id=instrument_id,
@@ -470,9 +614,9 @@ class BinanceAggregatedTradeData(msgspec.Struct, frozen=True):
     m: bool  # Is the buyer the market maker?
 
     def parse_to_trade_tick(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
+            self,
+            instrument_id: InstrumentId,
+            ts_init: int,
     ) -> TradeTick:
         return TradeTick(
             instrument_id=instrument_id,
@@ -551,9 +695,9 @@ class BinanceTickerData(msgspec.Struct, kw_only=True, frozen=True):
     n: int  # Total number of trades
 
     def parse_to_binance_ticker(
-        self,
-        instrument_id: InstrumentId,
-        ts_init: int,
+            self,
+            instrument_id: InstrumentId,
+            ts_init: int,
     ) -> BinanceTicker:
         return BinanceTicker(
             instrument_id=instrument_id,
@@ -636,10 +780,10 @@ class BinanceCandlestick(msgspec.Struct, frozen=True):
     B: str  # Ignore
 
     def parse_to_binance_bar(
-        self,
-        instrument_id: InstrumentId,
-        enum_parser: BinanceEnumParser,
-        ts_init: int,
+            self,
+            instrument_id: InstrumentId,
+            enum_parser: BinanceEnumParser,
+            ts_init: int,
     ) -> BinanceBar:
         bar_type = BarType(
             instrument_id=instrument_id,

@@ -26,7 +26,7 @@ from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
 
 
-class BinanceBar(Bar):
+class UpbitBar(Bar):
     """
     Represents an aggregated `Binance` bar.
 
@@ -48,12 +48,6 @@ class BinanceBar(Bar):
         The bars volume.
     quote_volume : Decimal
         The bars quote asset volume.
-    count : int
-        The number of trades for the bar.
-    taker_buy_base_volume : Decimal
-        The liquidity taker volume on the buy side for the base asset.
-    taker_buy_quote_volume : Decimal
-        The liquidity taker volume on the buy side for the quote asset.
     ts_event : uint64_t
         UNIX timestamp (nanoseconds) when the data event occurred.
     ts_init : uint64_t
@@ -67,19 +61,16 @@ class BinanceBar(Bar):
     """
 
     def __init__(
-        self,
-        bar_type: BarType,
-        open: Price,
-        high: Price,
-        low: Price,
-        close: Price,
-        volume: Quantity,
-        quote_volume: Decimal,
-        count: int,
-        taker_buy_base_volume: Decimal,
-        taker_buy_quote_volume: Decimal,
-        ts_event: int,
-        ts_init: int,
+            self,
+            bar_type: BarType,
+            open: Price,
+            high: Price,
+            low: Price,
+            close: Price,
+            volume: Quantity,
+            quote_volume: Decimal,
+            ts_event: int,
+            ts_init: int,
     ) -> None:
         super().__init__(
             bar_type=bar_type,
@@ -93,31 +84,16 @@ class BinanceBar(Bar):
         )
 
         self.quote_volume = quote_volume
-        self.count = count
-        self.taker_buy_base_volume = taker_buy_base_volume
-        self.taker_buy_quote_volume = taker_buy_quote_volume
-        self.taker_sell_base_volume = self.volume - self.taker_buy_base_volume
-        self.taker_sell_quote_volume = self.quote_volume - self.taker_buy_quote_volume
 
     def __getstate__(self):
         return (
             *super().__getstate__(),
             str(self.quote_volume),
-            self.count,
-            str(self.taker_buy_base_volume),
-            str(self.taker_buy_quote_volume),
-            str(self.taker_sell_base_volume),
-            str(self.taker_sell_quote_volume),
         )
 
     def __setstate__(self, state):
         super().__setstate__(state[:14])
         self.quote_volume = Decimal(state[14])
-        self.count = state[15]
-        self.taker_buy_base_volume = Decimal(state[16])
-        self.taker_buy_quote_volume = Decimal(state[17])
-        self.taker_sell_base_volume = Decimal(state[18])
-        self.taker_sell_quote_volume = Decimal(state[19])
 
     def __repr__(self) -> str:
         return (
@@ -129,17 +105,12 @@ class BinanceBar(Bar):
             f"close={self.close}, "
             f"volume={self.volume}, "
             f"quote_volume={self.quote_volume}, "
-            f"count={self.count}, "
-            f"taker_buy_base_volume={self.taker_buy_base_volume}, "
-            f"taker_buy_quote_volume={self.taker_buy_quote_volume}, "
-            f"taker_sell_base_volume={self.taker_sell_base_volume}, "
-            f"taker_sell_quote_volume={self.taker_sell_quote_volume}, "
             f"ts_event={self.ts_event}, "
             f"ts_init={self.ts_init})"
         )
 
     @staticmethod
-    def from_dict(values: dict[str, Any]) -> BinanceBar:
+    def from_dict(values: dict[str, Any]) -> UpbitBar:
         """
         Return a `Binance` bar parsed from the given values.
 
@@ -153,7 +124,7 @@ class BinanceBar(Bar):
         BinanceBar
 
         """
-        return BinanceBar(
+        return UpbitBar(
             bar_type=BarType.from_str(values["bar_type"]),
             open=Price.from_str(values["open"]),
             high=Price.from_str(values["high"]),
@@ -161,15 +132,12 @@ class BinanceBar(Bar):
             close=Price.from_str(values["close"]),
             volume=Quantity.from_str(values["volume"]),
             quote_volume=Decimal(values["quote_volume"]),
-            count=values["count"],
-            taker_buy_base_volume=Decimal(values["taker_buy_base_volume"]),
-            taker_buy_quote_volume=Decimal(values["taker_buy_quote_volume"]),
             ts_event=values["ts_event"],
             ts_init=values["ts_init"],
         )
 
     @staticmethod
-    def to_dict(obj: BinanceBar) -> dict[str, Any]:
+    def to_dict(obj: UpbitBar) -> dict[str, Any]:
         """
         Return a dictionary representation of this object.
 
@@ -187,9 +155,6 @@ class BinanceBar(Bar):
             "close": str(obj.close),
             "volume": str(obj.volume),
             "quote_volume": str(obj.quote_volume),
-            "count": obj.count,
-            "taker_buy_base_volume": str(obj.taker_buy_base_volume),
-            "taker_buy_quote_volume": str(obj.taker_buy_quote_volume),
             "ts_event": obj.ts_event,
             "ts_init": obj.ts_init,
         }
@@ -258,30 +223,30 @@ class BinanceTicker(Data):
     """
 
     def __init__(
-        self,
-        instrument_id: InstrumentId,
-        price_change: Decimal,
-        price_change_percent: Decimal,
-        weighted_avg_price: Decimal,
-        last_price: Decimal,
-        last_qty: Decimal,
-        open_price: Decimal,
-        high_price: Decimal,
-        low_price: Decimal,
-        volume: Decimal,
-        quote_volume: Decimal,
-        open_time_ms: int,
-        close_time_ms: int,
-        first_id: int,
-        last_id: int,
-        count: int,
-        ts_event: int,
-        ts_init: int,
-        prev_close_price: Decimal | None = None,
-        bid_price: Decimal | None = None,
-        bid_qty: Decimal | None = None,
-        ask_price: Decimal | None = None,
-        ask_qty: Decimal | None = None,
+            self,
+            instrument_id: InstrumentId,
+            price_change: Decimal,
+            price_change_percent: Decimal,
+            weighted_avg_price: Decimal,
+            last_price: Decimal,
+            last_qty: Decimal,
+            open_price: Decimal,
+            high_price: Decimal,
+            low_price: Decimal,
+            volume: Decimal,
+            quote_volume: Decimal,
+            open_time_ms: int,
+            close_time_ms: int,
+            first_id: int,
+            last_id: int,
+            count: int,
+            ts_event: int,
+            ts_init: int,
+            prev_close_price: Decimal | None = None,
+            bid_price: Decimal | None = None,
+            bid_qty: Decimal | None = None,
+            ask_price: Decimal | None = None,
+            ask_qty: Decimal | None = None,
     ) -> None:
         self.instrument_id = instrument_id
         self.price_change = price_change

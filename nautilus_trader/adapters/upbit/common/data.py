@@ -40,6 +40,11 @@ from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.http.error import BinanceError
 from nautilus_trader.adapters.binance.http.market import BinanceMarketHttpAPI
 from nautilus_trader.adapters.binance.websocket.client import BinanceWebSocketClient
+from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebsocketMsg, UpbitWebSocketOrderbook, \
+    UpbitWebSocketTicker, UpbitWebSocketTrade
+from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
+from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
+from nautilus_trader.adapters.upbit.websocket.client import UpbitWebSocketClient
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
@@ -114,19 +119,19 @@ class UpbitDataClient(LiveMarketDataClient):
     """
 
     def __init__(
-        self,
-        loop: asyncio.AbstractEventLoop,
-        client: BinanceHttpClient,
-        market: BinanceMarketHttpAPI,
-        enum_parser: BinanceEnumParser,
-        msgbus: MessageBus,
-        cache: Cache,
-        clock: LiveClock,
-        instrument_provider: InstrumentProvider,
-        account_type: BinanceAccountType,
-        base_url_ws: str,
-        name: str | None,
-        config: BinanceDataClientConfig,
+            self,
+            loop: asyncio.AbstractEventLoop,
+            client: UpbitHttpClient,
+            market: UpbitMarketHttpAPI,
+            enum_parser: BinanceEnumParser,
+            msgbus: MessageBus,
+            cache: Cache,
+            clock: LiveClock,
+            instrument_provider: InstrumentProvider,
+            account_type: BinanceAccountType,
+            url_ws: str,
+            name: str | None,
+            config: BinanceDataClientConfig,
     ) -> None:
         super().__init__(
             loop=loop,
@@ -154,11 +159,11 @@ class UpbitDataClient(LiveMarketDataClient):
         self._enum_parser = enum_parser
 
         # WebSocket API
-        self._ws_client = BinanceWebSocketClient(
+        self._ws_client = UpbitWebSocketClient(
             clock=clock,
             handler=self._handle_ws_message,
             handler_reconnect=self._reconnect,
-            base_url=base_url_ws,
+            url=url_ws,
             loop=self._loop,
         )
 
@@ -171,28 +176,22 @@ class UpbitDataClient(LiveMarketDataClient):
         ] = {}
 
         self._log.info(f"Base url HTTP {self._http_client.base_url}", LogColor.BLUE)
-        self._log.info(f"Base url WebSocket {base_url_ws}", LogColor.BLUE)
+        self._log.info(f"Base url WebSocket {url_ws}", LogColor.BLUE)
 
         # Register common WebSocket message handlers
         self._ws_handlers = {
-            "@bookTicker": self._handle_book_ticker,
-            "@ticker": self._handle_ticker,
-            "@kline": self._handle_kline,
-            "@trade": self._handle_trade,
-            "@aggTrade": self._handle_agg_trade,
-            "@depth@": self._handle_book_diff_update,
-            "@depth5": self._handle_book_partial_update,
-            "@depth10": self._handle_book_partial_update,
-            "@depth20": self._handle_book_partial_update,
+            "ticker": self._handle_ticker,
+            "trade": self._handle_trade,
+            "orderbook": self._handle_orderbook,
+            "order": self._handle_trade,
+            "asset": self._handle_asset,
         }
 
         # WebSocket msgspec decoders
-        self._decoder_data_msg_wrapper = msgspec.json.Decoder(BinanceDataMsgWrapper)
-        self._decoder_order_book_msg = msgspec.json.Decoder(BinanceOrderBookMsg)
-        self._decoder_quote_msg = msgspec.json.Decoder(BinanceQuoteMsg)
-        self._decoder_ticker_msg = msgspec.json.Decoder(BinanceTickerMsg)
-        self._decoder_candlestick_msg = msgspec.json.Decoder(BinanceCandlestickMsg)
-        self._decoder_agg_trade_msg = msgspec.json.Decoder(BinanceAggregatedTradeMsg)
+        self._decoder_type_msg = msgspec.json.Decoder(UpbitWebsocketMsg)
+        self._decoder_order_book_msg = msgspec.json.Decoder(UpbitWebSocketOrderbook)
+        self._decoder_ticker_msg = msgspec.json.Decoder(UpbitWebSocketTicker)
+        self._decoder_trade_msg = msgspec.json.Decoder(UpbitWebSocketTrade)
 
         # Retry logic (hard coded for now)
         self._max_retries: int = 3
@@ -261,9 +260,9 @@ class UpbitDataClient(LiveMarketDataClient):
 
     def _should_retry(self, error_code: BinanceErrorCode, retries: int) -> bool:
         if (
-            error_code not in self._retry_errors
-            or not self._max_retries
-            or retries > self._max_retries
+                error_code not in self._retry_errors
+                or not self._max_retries
+                or retries > self._max_retries
         ):
             return False
         return True
@@ -322,11 +321,11 @@ class UpbitDataClient(LiveMarketDataClient):
         pass  # Do nothing further
 
     async def _subscribe_order_book_deltas(
-        self,
-        instrument_id: InstrumentId,
-        book_type: BookType,
-        depth: int | None = None,
-        kwargs: dict | None = None,
+            self,
+            instrument_id: InstrumentId,
+            book_type: BookType,
+            depth: int | None = None,
+            kwargs: dict | None = None,
     ) -> None:
         update_speed = None
         if kwargs is not None:
@@ -339,11 +338,11 @@ class UpbitDataClient(LiveMarketDataClient):
         )
 
     async def _subscribe_order_book_snapshots(
-        self,
-        instrument_id: InstrumentId,
-        book_type: BookType,
-        depth: int | None = None,
-        kwargs: dict | None = None,
+            self,
+            instrument_id: InstrumentId,
+            book_type: BookType,
+            depth: int | None = None,
+            kwargs: dict | None = None,
     ) -> None:
         update_speed = None
         if kwargs is not None:
@@ -356,11 +355,11 @@ class UpbitDataClient(LiveMarketDataClient):
         )
 
     async def _subscribe_order_book(  # (too complex)
-        self,
-        instrument_id: InstrumentId,
-        book_type: BookType,
-        update_speed: int | None = None,
-        depth: int | None = None,
+            self,
+            instrument_id: InstrumentId,
+            book_type: BookType,
+            update_speed: int | None = None,
+            depth: int | None = None,
     ) -> None:
         if book_type == BookType.L3_MBO:
             self._log.error(
@@ -525,11 +524,11 @@ class UpbitDataClient(LiveMarketDataClient):
     # -- REQUESTS ---------------------------------------------------------------------------------
 
     async def _request_instrument(
-        self,
-        instrument_id: InstrumentId,
-        correlation_id: UUID4,
-        start: pd.Timestamp | None = None,
-        end: pd.Timestamp | None = None,
+            self,
+            instrument_id: InstrumentId,
+            correlation_id: UUID4,
+            start: pd.Timestamp | None = None,
+            end: pd.Timestamp | None = None,
     ) -> None:
         if start is not None:
             self._log.warning(
@@ -558,24 +557,24 @@ class UpbitDataClient(LiveMarketDataClient):
         )
 
     async def _request_quote_ticks(
-        self,
-        instrument_id: InstrumentId,
-        limit: int,
-        correlation_id: UUID4,
-        start: pd.Timestamp | None = None,
-        end: pd.Timestamp | None = None,
+            self,
+            instrument_id: InstrumentId,
+            limit: int,
+            correlation_id: UUID4,
+            start: pd.Timestamp | None = None,
+            end: pd.Timestamp | None = None,
     ) -> None:
         self._log.error(
             "Cannot request historical quote ticks: not published by Binance",
         )
 
     async def _request_trade_ticks(
-        self,
-        instrument_id: InstrumentId,
-        limit: int,
-        correlation_id: UUID4,
-        start: pd.Timestamp | None = None,
-        end: pd.Timestamp | None = None,
+            self,
+            instrument_id: InstrumentId,
+            limit: int,
+            correlation_id: UUID4,
+            start: pd.Timestamp | None = None,
+            end: pd.Timestamp | None = None,
     ) -> None:
         if limit == 0 or limit > 1000:
             limit = 1000
@@ -611,12 +610,12 @@ class UpbitDataClient(LiveMarketDataClient):
         self._handle_trade_ticks(instrument_id, ticks, correlation_id)
 
     async def _request_bars(  # (too complex)
-        self,
-        bar_type: BarType,
-        limit: int,
-        correlation_id: UUID4,
-        start: pd.Timestamp | None = None,
-        end: pd.Timestamp | None = None,
+            self,
+            bar_type: BarType,
+            limit: int,
+            correlation_id: UUID4,
+            start: pd.Timestamp | None = None,
+            end: pd.Timestamp | None = None,
     ) -> None:
         if bar_type.spec.price_type != PriceType.LAST:
             self._log.error(
@@ -688,10 +687,10 @@ class UpbitDataClient(LiveMarketDataClient):
         self._handle_bars(bar_type, bars, partial, correlation_id)
 
     async def _request_order_book_snapshot(
-        self,
-        instrument_id: InstrumentId,
-        limit: int,
-        correlation_id: UUID4,
+            self,
+            instrument_id: InstrumentId,
+            limit: int,
+            correlation_id: UUID4,
     ) -> None:
         if limit not in [5, 10, 20, 50, 100, 500, 1000]:
             self._log.error(
@@ -721,11 +720,11 @@ class UpbitDataClient(LiveMarketDataClient):
             )
 
     async def _aggregate_internal_from_minute_bars(
-        self,
-        bar_type: BarType,
-        start_time_ms: int | None,
-        end_time_ms: int | None,
-        limit: int | None,
+            self,
+            bar_type: BarType,
+            start_time_ms: int | None,
+            end_time_ms: int | None,
+            limit: int | None,
     ) -> list[Bar]:
         instrument = self._instrument_provider.find(bar_type.instrument_id)
         if instrument is None:
@@ -797,11 +796,11 @@ class UpbitDataClient(LiveMarketDataClient):
         return bars
 
     def _aggregate_bar_to_trade_ticks(
-        self,
-        instrument: Instrument,
-        aggregator: BarAggregator,
-        binance_bar: BinanceBar,
-        quantize_value: Decimal,
+            self,
+            instrument: Instrument,
+            aggregator: BarAggregator,
+            binance_bar: BinanceBar,
+            quantize_value: Decimal,
     ) -> None:
         volume = binance_bar.volume.as_decimal()
         size_part: Decimal = (volume / (4 * binance_bar.count)).quantize(
@@ -863,11 +862,11 @@ class UpbitDataClient(LiveMarketDataClient):
             aggregator.handle_trade_tick(close)
 
     async def _aggregate_internal_from_agg_trade_ticks(
-        self,
-        bar_type: BarType,
-        start_time_ms: int | None,
-        end_time_ms: int | None,
-        limit: int | None,
+            self,
+            bar_type: BarType,
+            start_time_ms: int | None,
+            end_time_ms: int | None,
+            limit: int | None,
     ) -> list[Bar]:
         instrument = self._instrument_provider.find(bar_type.instrument_id)
         if instrument is None:
@@ -948,14 +947,14 @@ class UpbitDataClient(LiveMarketDataClient):
     def _handle_ws_message(self, raw: bytes) -> None:
         # TODO: Uncomment for development
         # self._log.info(str(raw), LogColor.CYAN)
-        wrapper = self._decoder_data_msg_wrapper.decode(raw)
-        if not wrapper.stream:
+        wrapper = self._decoder_type_msg.decode(raw)
+        if not wrapper.type:
             # Control message response
             return
         try:
             handled = False
             for handler in self._ws_handlers:
-                if handler in wrapper.stream:
+                if handler in wrapper.type:
                     self._ws_handlers[handler](raw)
                     handled = True
             if not handled:
