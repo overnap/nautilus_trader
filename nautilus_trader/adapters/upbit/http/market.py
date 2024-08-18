@@ -28,6 +28,7 @@ from nautilus_trader.adapters.upbit.common.schemas.market import UpbitTrade
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbols
 from nautilus_trader.adapters.binance.common.types import BinanceBar
+from nautilus_trader.adapters.upbit.common.types import UpbitBar
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.adapters.upbit.http.endpoint import UpbitHttpEndpoint
 from nautilus_trader.core.correctness import PyCondition
@@ -143,7 +144,33 @@ class UpbitCandlesHttp(UpbitHttpEndpoint):
 
     async def get(self, params: GetParameters, interval: UpbitCandleInterval) -> list[UpbitCandle]:
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params, add_path=f"/{interval.value}")
+
+        add_path = None
+        match interval:
+            case UpbitCandleInterval.MINUTE_1:
+                add_path = "minutes/1"
+            case UpbitCandleInterval.MINUTE_3:
+                add_path = "minutes/3"
+            case UpbitCandleInterval.MINUTE_5:
+                add_path = "minutes/5"
+            case UpbitCandleInterval.MINUTE_10:
+                add_path = "minutes/10"
+            case UpbitCandleInterval.MINUTE_15:
+                add_path = "minutes/15"
+            case UpbitCandleInterval.MINUTE_30:
+                add_path = "minutes/30"
+            case UpbitCandleInterval.MINUTE_60:
+                add_path = "minutes/60"
+            case UpbitCandleInterval.MINUTE_240:
+                add_path = "minutes/240"
+            case UpbitCandleInterval.DAY_1:
+                add_path = "days"
+            case UpbitCandleInterval.WEEK_1:
+                add_path = "weeks"
+            case UpbitCandleInterval.MONTH_1:
+                add_path = "months"
+
+        raw = await self._method(method_type, params, add_path=f"/{add_path}")
         return self._get_resp_decoder.decode(raw)
 
 
@@ -266,8 +293,6 @@ class UpbitMarketHttpAPI:
     ----------
     client : BinanceHttpClient
         The Binance REST API client.
-    account_type : BinanceAccountType
-        The Binance account type, used to select the endpoint prefix.
 
     Warnings
     --------
@@ -408,7 +433,7 @@ class UpbitMarketHttpAPI:
             interval=interval,
         )
 
-    async def request_binance_bars(
+    async def request_upbit_bars(
         self,
         bar_type: BarType,
         ts_init: int,
@@ -416,36 +441,40 @@ class UpbitMarketHttpAPI:
         count: int | None = None,
         start_time: int | None = None,
         end_time: int | None = None,
-    ) -> list[BinanceBar]:
+    ) -> list[UpbitBar]:
         """
         Request Binance Bars from Klines.
         """
-        end_time_ms = int(end_time) if end_time is not None else sys.maxsize
-        all_bars: list[BinanceBar] = []
+        end_time = int(end_time) if end_time is not None else sys.maxsize
+
+        all_bars: list[UpbitBar] = []
         while True:
             candles = await self.query_candles(
                 symbol=bar_type.instrument_id.symbol.value,
+                interval=interval,
                 to=unix_nanos_to_dt(
-                    millis_to_nanos(start_time)
+                    millis_to_nanos(end_time)
                 ).isoformat(),  # TODO: milli/nano 단위 체크!
                 count=count,
             )
-            bars: list[BinanceBar] = [
-                candle.parse_to_binance_bar(bar_type, ts_init) for candle in candles
+            bars: list[UpbitBar] = [
+                candle.parse_to_upbit_bar(bar_type, ts_init) for candle in candles
             ]
             all_bars.extend(bars)
 
             # Update the start_time to fetch the next set of bars
             if candles:
-                next_start_time = candles[-1].timestamp + 1
+                next_end_time = candles[0].timestamp - 1
             else:
                 # Handle the case when klines is empty
                 break
 
             # No more bars to fetch
-            if (count and len(candles) < count) or next_start_time >= end_time_ms:
+            if (count and len(candles) < count) or start_time is None or next_end_time < start_time:
                 break
 
-            start_time = next_start_time
+            end_time = next_end_time
+
+        all_bars.reverse()
 
         return all_bars

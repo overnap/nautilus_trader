@@ -25,6 +25,7 @@ from nautilus_trader.adapters.binance.common.enums import BinanceRateLimitType
 from nautilus_trader.adapters.binance.common.enums import BinanceSymbolFilterType
 from nautilus_trader.adapters.binance.common.types import BinanceBar
 from nautilus_trader.adapters.binance.common.types import BinanceTicker
+from nautilus_trader.adapters.upbit.common.types import UpbitBar
 from nautilus_trader.core.datetime import millis_to_nanos
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import BookOrder
@@ -132,9 +133,9 @@ class UpbitTrade(msgspec.Struct, frozen=True):
     sequential_id: int
 
     def parse_to_trade_tick(
-            self,
-            instrument_id: InstrumentId,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
     ) -> TradeTick:
         """
         Parse Binance trade to internal TradeTick.
@@ -175,15 +176,15 @@ class UpbitCandle(msgspec.Struct, frozen=True):
     )
     first_day_of_period: str | None = None  # Week and Month candle only
 
-    def parse_to_binance_bar(
-            self,
-            bar_type: BarType,
-            ts_init: int,
-    ) -> BinanceBar:
+    def parse_to_upbit_bar(
+        self,
+        bar_type: BarType,
+        ts_init: int,
+    ) -> UpbitBar:
         """
         Parse kline to BinanceBar.
         """
-        return BinanceBar(
+        return UpbitBar(
             bar_type=bar_type,
             open=Price.from_str(self.opening_price),
             high=Price.from_str(self.high_price),
@@ -191,16 +192,11 @@ class UpbitCandle(msgspec.Struct, frozen=True):
             close=Price.from_str(self.trade_price),
             volume=Quantity.from_str(self.candle_acc_trade_volume),
             quote_volume=Decimal(self.candle_acc_trade_price),
-            count=1,  # FIXME: 임시로 거래가 1번만 일어난 캔들로 취급! 수정 필요
-            taker_buy_base_volume=Decimal(self.candle_acc_trade_volume),
-            taker_buy_quote_volume=Decimal(
-                self.candle_acc_trade_price
-            ),  # FIXME: 임시로 taker만 있는 거래로 취급! 수정 필요
             ts_event=millis_to_nanos(
                 self.candle_date_time_utc
             ),  # TODO: 봉 완성 시간인거 확인 했으나 한번더 확인 필요
             ts_init=ts_init,
-        )  # TODO: BinanceBar가 별로 중요한 타입이 아니면 직접 만들기.
+        )
 
 
 class UpbitTicker(msgspec.Struct, frozen=True):
@@ -261,9 +257,9 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
     level: str
 
     def parse_to_order_book_snapshot(
-            self,
-            instrument_id: InstrumentId,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.timestamp)
         bids: list[BookOrder] = [
@@ -287,6 +283,7 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
 ################################################################################
 
 # TODO: 축약형으로 쓰고싶은데 as (ask size) 예약어걸림. rename 어케쓰는건지 확인
+
 
 class UpbitWebSocketMsg(msgspec.Struct):
     """
@@ -328,7 +325,9 @@ class UpbitWebSocketTicker(msgspec.Struct):
     highest_52_week_date: str  # 52주 최고가 달성일 (yyyy-MM-dd)
     lowest_52_week_price: str  # 52주 최저가
     lowest_52_week_date: str  # 52주 최저가 달성일 (yyyy-MM-dd)
-    market_state: str  # 거래상태 (PREVIEW : 입금지원, ACTIVE : 거래지원가능, DELISTED : 거래지원종료)
+    market_state: (
+        str  # 거래상태 (PREVIEW : 입금지원, ACTIVE : 거래지원가능, DELISTED : 거래지원종료)
+    )
     delisting_date: str  # 거래지원 종료일
     market_warning: str  # 유의 종목 여부 (NONE : 해당없음, CAUTION : 투자유의)
     timestamp: int  # 타임스탬프 (millisecond)
@@ -355,6 +354,25 @@ class UpbitWebSocketTrade(msgspec.Struct):
     sequential_id: int  # 체결 번호 (Unique)
     stream_type: str  # 스트림 타입
 
+    def parse_to_trade_tick(
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
+    ) -> TradeTick:
+        """
+        Parse Binance trade to internal TradeTick.
+        """
+        # TODO: market이랑 instrument 비교?
+        return TradeTick(
+            instrument_id=instrument_id,
+            price=Price.from_str(self.trade_price),
+            size=Quantity.from_str(self.trade_volume),
+            aggressor_side=AggressorSide.BUYER if self.ask_bid == "ASK" else AggressorSide.SELLER,
+            trade_id=TradeId(str(self.sequential_id)),
+            ts_event=millis_to_nanos(self.timestamp),
+            ts_init=ts_init,
+        )
+
 
 class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
     """
@@ -370,9 +388,9 @@ class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
     level: str  # 호가 모아보기 단위 (default: 0)
 
     def parse_to_order_book_snapshot(
-            self,
-            instrument_id: InstrumentId,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.timestamp)
         bids: list[BookOrder] = [
@@ -449,12 +467,12 @@ class BinanceOrderBookDelta(msgspec.Struct, array_like=True):
     size: str
 
     def parse_to_order_book_delta(
-            self,
-            instrument_id: InstrumentId,
-            side: OrderSide,
-            ts_event: int,
-            ts_init: int,
-            update_id: int,
+        self,
+        instrument_id: InstrumentId,
+        side: OrderSide,
+        ts_event: int,
+        ts_init: int,
+        update_id: int,
     ) -> OrderBookDelta:
         size = Quantity.from_str(self.size)
         order = BookOrder(
@@ -496,9 +514,9 @@ class BinanceOrderBookData(msgspec.Struct, frozen=True):
     ps: str | None = None  # COIN-M FUTURES only, pair
 
     def parse_to_order_book_deltas(
-            self,
-            instrument_id: InstrumentId,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.T) if self.T is not None else millis_to_nanos(self.E)
 
@@ -526,9 +544,9 @@ class BinanceOrderBookData(msgspec.Struct, frozen=True):
         return OrderBookDeltas(instrument_id=instrument_id, deltas=bid_deltas + ask_deltas)
 
     def parse_to_order_book_snapshot(
-            self,
-            instrument_id: InstrumentId,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.T)
         bids: list[BookOrder] = [
@@ -573,9 +591,9 @@ class BinanceQuoteData(msgspec.Struct, frozen=True):
     T: int | None = None  # event time
 
     def parse_to_quote_tick(
-            self,
-            instrument_id: InstrumentId,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
     ) -> QuoteTick:
         return QuoteTick(
             instrument_id=instrument_id,
@@ -614,9 +632,9 @@ class BinanceAggregatedTradeData(msgspec.Struct, frozen=True):
     m: bool  # Is the buyer the market maker?
 
     def parse_to_trade_tick(
-            self,
-            instrument_id: InstrumentId,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
     ) -> TradeTick:
         return TradeTick(
             instrument_id=instrument_id,
@@ -695,9 +713,9 @@ class BinanceTickerData(msgspec.Struct, kw_only=True, frozen=True):
     n: int  # Total number of trades
 
     def parse_to_binance_ticker(
-            self,
-            instrument_id: InstrumentId,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
     ) -> BinanceTicker:
         return BinanceTicker(
             instrument_id=instrument_id,
@@ -780,10 +798,10 @@ class BinanceCandlestick(msgspec.Struct, frozen=True):
     B: str  # Ignore
 
     def parse_to_binance_bar(
-            self,
-            instrument_id: InstrumentId,
-            enum_parser: BinanceEnumParser,
-            ts_init: int,
+        self,
+        instrument_id: InstrumentId,
+        enum_parser: BinanceEnumParser,
+        ts_init: int,
     ) -> BinanceBar:
         bar_type = BarType(
             instrument_id=instrument_id,

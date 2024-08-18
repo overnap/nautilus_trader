@@ -34,10 +34,7 @@ class UpbitSymbol(str):
         PyCondition.valid_string(symbol, "symbol")
 
         # Format the string on construction to be Binance compatible
-        return super().__new__(
-            cls,
-            symbol.upper().replace(" ", "").replace("/", "")
-        )
+        return super().__new__(cls, symbol.upper().replace(" ", "").replace("/", ""))
 
     def parse_as_nautilus(self) -> str:
         return str(self)
@@ -55,6 +52,7 @@ class UpbitSymbols(str):
         return super().__new__(cls, json.dumps(upbit_symbols).replace(" ", "")[1:-1])
 
     def parse_str_to_list(self) -> list[UpbitSymbol]:
-        binance_symbols: list[UpbitSymbol] = json.loads(f"{{{self}}}")  # TODO: 이 기괴한 문법 머임? 테스트 필요
+        binance_symbols: list[UpbitSymbol] = json.loads(
+            f"{{{self}}}"
+        )  # TODO: 이 기괴한 문법 머임? 테스트 필요
         return binance_symbols
-

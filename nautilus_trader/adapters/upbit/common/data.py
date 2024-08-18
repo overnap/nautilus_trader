@@ -25,12 +25,10 @@ from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceErrorCode
 from nautilus_trader.adapters.binance.common.enums import BinanceKlineInterval
-from nautilus_trader.adapters.binance.common.schemas.market import BinanceAggregatedTradeMsg
-from nautilus_trader.adapters.binance.common.schemas.market import BinanceCandlestickMsg
-from nautilus_trader.adapters.binance.common.schemas.market import BinanceDataMsgWrapper
-from nautilus_trader.adapters.binance.common.schemas.market import BinanceOrderBookMsg
-from nautilus_trader.adapters.binance.common.schemas.market import BinanceQuoteMsg
-from nautilus_trader.adapters.binance.common.schemas.market import BinanceTickerMsg
+from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketMsg
+from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketOrderbook
+from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketTicker
+from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketTrade
 from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
 from nautilus_trader.adapters.binance.common.types import BinanceBar
 from nautilus_trader.adapters.binance.common.types import BinanceTicker
@@ -38,10 +36,8 @@ from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
 from nautilus_trader.adapters.binance.futures.types import BinanceFuturesMarkPriceUpdate
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.http.error import BinanceError
-from nautilus_trader.adapters.binance.http.market import BinanceMarketHttpAPI
-from nautilus_trader.adapters.binance.websocket.client import BinanceWebSocketClient
-from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebsocketMsg, UpbitWebSocketOrderbook, \
-    UpbitWebSocketTicker, UpbitWebSocketTrade
+from nautilus_trader.adapters.upbit.common.enums import UpbitCandleInterval
+from nautilus_trader.adapters.upbit.common.types import UpbitBar
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
 from nautilus_trader.adapters.upbit.websocket.client import UpbitWebSocketClient
@@ -119,19 +115,19 @@ class UpbitDataClient(LiveMarketDataClient):
     """
 
     def __init__(
-            self,
-            loop: asyncio.AbstractEventLoop,
-            client: UpbitHttpClient,
-            market: UpbitMarketHttpAPI,
-            enum_parser: BinanceEnumParser,
-            msgbus: MessageBus,
-            cache: Cache,
-            clock: LiveClock,
-            instrument_provider: InstrumentProvider,
-            account_type: BinanceAccountType,
-            url_ws: str,
-            name: str | None,
-            config: BinanceDataClientConfig,
+        self,
+        loop: asyncio.AbstractEventLoop,
+        client: UpbitHttpClient,
+        market: UpbitMarketHttpAPI,
+        enum_parser: BinanceEnumParser,
+        msgbus: MessageBus,
+        cache: Cache,
+        clock: LiveClock,
+        instrument_provider: InstrumentProvider,
+        account_type: BinanceAccountType,
+        url_ws: str,
+        name: str | None,
+        config: BinanceDataClientConfig,
     ) -> None:
         super().__init__(
             loop=loop,
@@ -260,9 +256,9 @@ class UpbitDataClient(LiveMarketDataClient):
 
     def _should_retry(self, error_code: BinanceErrorCode, retries: int) -> bool:
         if (
-                error_code not in self._retry_errors
-                or not self._max_retries
-                or retries > self._max_retries
+            error_code not in self._retry_errors
+            or not self._max_retries
+            or retries > self._max_retries
         ):
             return False
         return True
@@ -321,11 +317,11 @@ class UpbitDataClient(LiveMarketDataClient):
         pass  # Do nothing further
 
     async def _subscribe_order_book_deltas(
-            self,
-            instrument_id: InstrumentId,
-            book_type: BookType,
-            depth: int | None = None,
-            kwargs: dict | None = None,
+        self,
+        instrument_id: InstrumentId,
+        book_type: BookType,
+        depth: int | None = None,
+        kwargs: dict | None = None,
     ) -> None:
         update_speed = None
         if kwargs is not None:
@@ -338,11 +334,11 @@ class UpbitDataClient(LiveMarketDataClient):
         )
 
     async def _subscribe_order_book_snapshots(
-            self,
-            instrument_id: InstrumentId,
-            book_type: BookType,
-            depth: int | None = None,
-            kwargs: dict | None = None,
+        self,
+        instrument_id: InstrumentId,
+        book_type: BookType,
+        depth: int | None = None,
+        kwargs: dict | None = None,
     ) -> None:
         update_speed = None
         if kwargs is not None:
@@ -355,11 +351,11 @@ class UpbitDataClient(LiveMarketDataClient):
         )
 
     async def _subscribe_order_book(  # (too complex)
-            self,
-            instrument_id: InstrumentId,
-            book_type: BookType,
-            update_speed: int | None = None,
-            depth: int | None = None,
+        self,
+        instrument_id: InstrumentId,
+        book_type: BookType,
+        update_speed: int | None = None,
+        depth: int | None = None,
     ) -> None:
         if book_type == BookType.L3_MBO:
             self._log.error(
@@ -524,11 +520,11 @@ class UpbitDataClient(LiveMarketDataClient):
     # -- REQUESTS ---------------------------------------------------------------------------------
 
     async def _request_instrument(
-            self,
-            instrument_id: InstrumentId,
-            correlation_id: UUID4,
-            start: pd.Timestamp | None = None,
-            end: pd.Timestamp | None = None,
+        self,
+        instrument_id: InstrumentId,
+        correlation_id: UUID4,
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
     ) -> None:
         if start is not None:
             self._log.warning(
@@ -557,24 +553,24 @@ class UpbitDataClient(LiveMarketDataClient):
         )
 
     async def _request_quote_ticks(
-            self,
-            instrument_id: InstrumentId,
-            limit: int,
-            correlation_id: UUID4,
-            start: pd.Timestamp | None = None,
-            end: pd.Timestamp | None = None,
+        self,
+        instrument_id: InstrumentId,
+        limit: int,
+        correlation_id: UUID4,
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
     ) -> None:
         self._log.error(
             "Cannot request historical quote ticks: not published by Binance",
         )
 
     async def _request_trade_ticks(
-            self,
-            instrument_id: InstrumentId,
-            limit: int,
-            correlation_id: UUID4,
-            start: pd.Timestamp | None = None,
-            end: pd.Timestamp | None = None,
+        self,
+        instrument_id: InstrumentId,
+        limit: int,
+        correlation_id: UUID4,
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
     ) -> None:
         if limit == 0 or limit > 1000:
             limit = 1000
@@ -610,12 +606,12 @@ class UpbitDataClient(LiveMarketDataClient):
         self._handle_trade_ticks(instrument_id, ticks, correlation_id)
 
     async def _request_bars(  # (too complex)
-            self,
-            bar_type: BarType,
-            limit: int,
-            correlation_id: UUID4,
-            start: pd.Timestamp | None = None,
-            end: pd.Timestamp | None = None,
+        self,
+        bar_type: BarType,
+        count: int,
+        correlation_id: UUID4,
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
     ) -> None:
         if bar_type.spec.price_type != PriceType.LAST:
             self._log.error(
@@ -623,6 +619,9 @@ class UpbitDataClient(LiveMarketDataClient):
                 f"only historical bars for LAST price type available from Binance",
             )
             return
+
+        if start is None and end is None and count is None:
+            count = 200
 
         start_time_ms = None
         if start is not None:
@@ -640,26 +639,21 @@ class UpbitDataClient(LiveMarketDataClient):
                 return
 
             resolution = self._enum_parser.parse_nautilus_bar_aggregation(bar_type.spec.aggregation)
-            if not self._binance_account_type.is_spot_or_margin and resolution == "s":
-                self._log.error(
-                    f"Cannot request {bar_type}: "
-                    "second interval bars are not aggregated by Binance Futures",
-                )
             try:
-                interval = BinanceKlineInterval(f"{bar_type.spec.step}{resolution}")
+                interval = UpbitCandleInterval(f"{bar_type.spec.step}{resolution}")
             except ValueError:
                 self._log.error(
-                    f"Cannot create Binance Kline interval. {bar_type.spec.step}{resolution} "
+                    f"Cannot create Upbit Candle interval. {bar_type.spec.step}{resolution}"
                     "not supported",
                 )
                 return
 
-            bars = await self._http_market.request_binance_bars(
+            bars = await self._http_market.request_upbit_bars(
                 bar_type=bar_type,
                 interval=interval,
                 start_time=start_time_ms,
                 end_time=end_time_ms,
-                limit=limit if limit > 0 else None,
+                count=count if count > 0 else None,
                 ts_init=self._clock.timestamp_ns(),
             )
 
@@ -668,29 +662,26 @@ class UpbitDataClient(LiveMarketDataClient):
                     "Inferred INTERNAL time bars from EXTERNAL time bars",
                     LogColor.BLUE,
                 )
+
         elif start and start < self._clock.utc_now() - pd.Timedelta(days=1):
             bars = await self._aggregate_internal_from_minute_bars(
                 bar_type=bar_type,
                 start_time_ms=start_time_ms,
                 end_time_ms=end_time_ms,
-                limit=limit if limit > 0 else None,
+                count=count if count > 0 else None,
             )
         else:
-            bars = await self._aggregate_internal_from_agg_trade_ticks(
-                bar_type=bar_type,
-                start_time_ms=start_time_ms,
-                end_time_ms=end_time_ms,
-                limit=limit if limit > 0 else None,
-            )
+            self._log.error(f"Cannot infer INTERNAL time bars without `start_time` in Upbit")
+            return
 
         partial: Bar = bars.pop()
         self._handle_bars(bar_type, bars, partial, correlation_id)
 
     async def _request_order_book_snapshot(
-            self,
-            instrument_id: InstrumentId,
-            limit: int,
-            correlation_id: UUID4,
+        self,
+        instrument_id: InstrumentId,
+        limit: int,
+        correlation_id: UUID4,
     ) -> None:
         if limit not in [5, 10, 20, 50, 100, 500, 1000]:
             self._log.error(
@@ -720,11 +711,11 @@ class UpbitDataClient(LiveMarketDataClient):
             )
 
     async def _aggregate_internal_from_minute_bars(
-            self,
-            bar_type: BarType,
-            start_time_ms: int | None,
-            end_time_ms: int | None,
-            limit: int | None,
+        self,
+        bar_type: BarType,
+        start_time_ms: int | None,
+        end_time_ms: int | None,
+        count: int | None,
     ) -> list[Bar]:
         instrument = self._instrument_provider.find(bar_type.instrument_id)
         if instrument is None:
@@ -733,19 +724,19 @@ class UpbitDataClient(LiveMarketDataClient):
             )
             return []
 
-        self._log.info("Requesting 1-MINUTE Binance bars to infer INTERNAL bars...", LogColor.BLUE)
+        self._log.info("Requesting 1-MINUTE Upbit bars to infer INTERNAL bars...", LogColor.BLUE)
 
-        binance_bars = await self._http_market.request_binance_bars(
+        upbit_bars = await self._http_market.request_upbit_bars(
             bar_type=BarType(
                 bar_type.instrument_id,
                 BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST),
                 AggregationSource.EXTERNAL,
             ),
-            interval=BinanceKlineInterval.MINUTE_1,
+            interval=UpbitCandleInterval.MINUTE_1,
             start_time=start_time_ms,
             end_time=end_time_ms,
             ts_init=self._clock.timestamp_ns(),
-            limit=limit,
+            count=count,
         )
 
         quantize_value = Decimal(f"1e-{instrument.size_precision}")
@@ -776,13 +767,13 @@ class UpbitDataClient(LiveMarketDataClient):
                 f"not supported in open-source",  # pragma: no cover (design-time error)
             )
 
-        for binance_bar in binance_bars:
-            if binance_bar.count == 0:
+        for upbit_bar in upbit_bars:
+            if upbit_bar.count == 0:
                 continue
             self._aggregate_bar_to_trade_ticks(
                 instrument=instrument,
                 aggregator=aggregator,
-                binance_bar=binance_bar,
+                upbit_bar=upbit_bar,
                 quantize_value=quantize_value,
             )
 
@@ -791,137 +782,70 @@ class UpbitDataClient(LiveMarketDataClient):
             LogColor.BLUE,
         )
 
-        if limit:
-            bars = bars[:limit]
+        if count:
+            bars = bars[:count]
         return bars
 
     def _aggregate_bar_to_trade_ticks(
-            self,
-            instrument: Instrument,
-            aggregator: BarAggregator,
-            binance_bar: BinanceBar,
-            quantize_value: Decimal,
+        self,
+        instrument: Instrument,
+        aggregator: BarAggregator,
+        upbit_bar: UpbitBar,
+        quantize_value: Decimal,
     ) -> None:
-        volume = binance_bar.volume.as_decimal()
-        size_part: Decimal = (volume / (4 * binance_bar.count)).quantize(
+        volume = upbit_bar.volume.as_decimal()
+        size_part: Decimal = (volume / 4).quantize(
             quantize_value,
             rounding=decimal.ROUND_DOWN,
         )
-        remainder: Decimal = volume - (size_part * 4 * binance_bar.count)
+        remainder: Decimal = volume - (size_part * 4)
 
         size = Quantity(size_part, instrument.size_precision)
 
-        for i in range(binance_bar.count):
-            open = TradeTick(
-                instrument_id=instrument.id,
-                price=binance_bar.open,
-                size=size,
-                aggressor_side=AggressorSide.NO_AGGRESSOR,
-                trade_id=TradeId("NULL"),  # N/A
-                ts_event=binance_bar.ts_event,
-                ts_init=binance_bar.ts_event,
-            )
-
-            high = TradeTick(
-                instrument_id=instrument.id,
-                price=binance_bar.high,
-                size=size,
-                aggressor_side=AggressorSide.NO_AGGRESSOR,
-                trade_id=TradeId("NULL"),  # N/A
-                ts_event=binance_bar.ts_event,
-                ts_init=binance_bar.ts_event,
-            )
-
-            low = TradeTick(
-                instrument_id=instrument.id,
-                price=binance_bar.low,
-                size=size,
-                aggressor_side=AggressorSide.NO_AGGRESSOR,
-                trade_id=TradeId("NULL"),  # N/A
-                ts_event=binance_bar.ts_event,
-                ts_init=binance_bar.ts_event,
-            )
-
-            close_size = size
-            if i == binance_bar.count - 1:
-                close_size = Quantity(size_part + remainder, instrument.size_precision)
-
-            close = TradeTick(
-                instrument_id=instrument.id,
-                price=binance_bar.close,
-                size=close_size,
-                aggressor_side=AggressorSide.NO_AGGRESSOR,
-                trade_id=TradeId("NULL"),  # N/A
-                ts_event=binance_bar.ts_event,
-                ts_init=binance_bar.ts_event,
-            )
-
-            aggregator.handle_trade_tick(open)
-            aggregator.handle_trade_tick(high)
-            aggregator.handle_trade_tick(low)
-            aggregator.handle_trade_tick(close)
-
-    async def _aggregate_internal_from_agg_trade_ticks(
-            self,
-            bar_type: BarType,
-            start_time_ms: int | None,
-            end_time_ms: int | None,
-            limit: int | None,
-    ) -> list[Bar]:
-        instrument = self._instrument_provider.find(bar_type.instrument_id)
-        if instrument is None:
-            self._log.error(
-                f"Cannot aggregate internal bars: instrument {bar_type.instrument_id} not found",
-            )
-            return []
-
-        self._log.info("Requesting aggregated trade ticks to infer INTERNAL bars...", LogColor.BLUE)
-
-        ticks = await self._http_market.request_agg_trade_ticks(
+        open = TradeTick(
             instrument_id=instrument.id,
-            start_time=start_time_ms,
-            end_time=end_time_ms,
-            ts_init=self._clock.timestamp_ns(),
-            limit=limit,
+            price=upbit_bar.open,
+            size=size,
+            aggressor_side=AggressorSide.NO_AGGRESSOR,
+            trade_id=TradeId("NULL"),  # N/A
+            ts_event=upbit_bar.ts_event,
+            ts_init=upbit_bar.ts_event,
         )
 
-        bars: list[Bar] = []
-        if bar_type.spec.aggregation == BarAggregation.TICK:
-            aggregator = TickBarAggregator(
-                instrument=instrument,
-                bar_type=bar_type,
-                handler=bars.append,
-            )
-        elif bar_type.spec.aggregation == BarAggregation.VOLUME:
-            aggregator = VolumeBarAggregator(
-                instrument=instrument,
-                bar_type=bar_type,
-                handler=bars.append,
-            )
-        elif bar_type.spec.aggregation == BarAggregation.VALUE:
-            aggregator = ValueBarAggregator(
-                instrument=instrument,
-                bar_type=bar_type,
-                handler=bars.append,
-            )
-        else:
-            raise RuntimeError(  # pragma: no cover (design-time error)
-                f"Cannot start aggregator: "  # pragma: no cover (design-time error)
-                f"BarAggregation.{bar_type.spec.aggregation_string_c()} "  # pragma: no cover (design-time error)
-                f"not supported in open-source",  # pragma: no cover (design-time error)
-            )
-
-        for tick in ticks:
-            aggregator.handle_trade_tick(tick)
-
-        self._log.info(
-            f"Inferred {len(bars)} {bar_type} bars aggregated from {len(ticks)} trade ticks",
-            LogColor.BLUE,
+        high = TradeTick(
+            instrument_id=instrument.id,
+            price=upbit_bar.high,
+            size=size,
+            aggressor_side=AggressorSide.NO_AGGRESSOR,
+            trade_id=TradeId("NULL"),  # N/A
+            ts_event=upbit_bar.ts_event,
+            ts_init=upbit_bar.ts_event,
         )
 
-        if limit:
-            bars = bars[:limit]
-        return bars
+        low = TradeTick(
+            instrument_id=instrument.id,
+            price=upbit_bar.low,
+            size=size,
+            aggressor_side=AggressorSide.NO_AGGRESSOR,
+            trade_id=TradeId("NULL"),  # N/A
+            ts_event=upbit_bar.ts_event,
+            ts_init=upbit_bar.ts_event,
+        )
+
+        close = TradeTick(
+            instrument_id=instrument.id,
+            price=upbit_bar.close,
+            size=Quantity(size_part + remainder, instrument.size_precision),
+            aggressor_side=AggressorSide.NO_AGGRESSOR,
+            trade_id=TradeId("NULL"),  # N/A
+            ts_event=upbit_bar.ts_event,
+            ts_init=upbit_bar.ts_event,
+        )
+
+        aggregator.handle_trade_tick(open)
+        aggregator.handle_trade_tick(high)
+        aggregator.handle_trade_tick(low)
+        aggregator.handle_trade_tick(close)
 
     def _send_all_instruments_to_data_engine(self) -> None:
         for instrument in self._instrument_provider.get_all().values():
@@ -964,31 +888,6 @@ class UpbitDataClient(LiveMarketDataClient):
         except Exception as e:
             self._log.error(f"Error handling websocket message, {e}")
 
-    def _handle_book_diff_update(self, raw: bytes) -> None:
-        msg = self._decoder_order_book_msg.decode(raw)
-        instrument_id: InstrumentId = self._get_cached_instrument_id(msg.data.s)
-        book_deltas: OrderBookDeltas = msg.data.parse_to_order_book_deltas(
-            instrument_id=instrument_id,
-            ts_init=self._clock.timestamp_ns(),
-        )
-        book_buffer: list[OrderBookDelta | OrderBookDeltas] | None = self._book_buffer.get(
-            instrument_id,
-        )
-        if book_buffer is not None:
-            book_buffer.append(book_deltas)
-            return
-
-        self._handle_data(book_deltas)
-
-    def _handle_book_ticker(self, raw: bytes) -> None:
-        msg = self._decoder_quote_msg.decode(raw)
-        instrument_id: InstrumentId = self._get_cached_instrument_id(msg.data.s)
-        quote_tick: QuoteTick = msg.data.parse_to_quote_tick(
-            instrument_id=instrument_id,
-            ts_init=self._clock.timestamp_ns(),
-        )
-        self._handle_data(quote_tick)
-
     def _handle_ticker(self, raw: bytes) -> None:
         msg = self._decoder_ticker_msg.decode(raw)
         instrument_id: InstrumentId = self._get_cached_instrument_id(msg.data.s)
@@ -1003,29 +902,27 @@ class UpbitDataClient(LiveMarketDataClient):
         custom = CustomData(data_type=data_type, data=ticker)
         self._handle_data(custom)
 
-    def _handle_kline(self, raw: bytes) -> None:
-        msg = self._decoder_candlestick_msg.decode(raw)
-        if not msg.data.k.x:
-            return  # Not closed yet
-        instrument_id = self._get_cached_instrument_id(msg.data.s)
-        bar: BinanceBar = msg.data.k.parse_to_binance_bar(
-            instrument_id=instrument_id,
-            enum_parser=self._enum_parser,
-            ts_init=self._clock.timestamp_ns(),
-        )
-        self._handle_data(bar)
-
-    def _handle_book_partial_update(self, raw: bytes) -> None:
-        raise NotImplementedError("Please implement book partial update handling in child class.")
-
     def _handle_trade(self, raw: bytes) -> None:
-        raise NotImplementedError("Please implement trade handling in child class.")
-
-    def _handle_agg_trade(self, raw: bytes) -> None:
-        msg = self._decoder_agg_trade_msg.decode(raw)
-        instrument_id: InstrumentId = self._get_cached_instrument_id(msg.data.s)
-        trade_tick: TradeTick = msg.data.parse_to_trade_tick(
+        msg = self._decoder_trade_msg.decode(raw)
+        instrument_id: InstrumentId = self._get_cached_instrument_id(msg.code)
+        trade_tick: TradeTick = msg.parse_to_trade_tick(
             instrument_id=instrument_id,
             ts_init=self._clock.timestamp_ns(),
         )
         self._handle_data(trade_tick)
+
+    def _handle_book_partial_update(self, raw: bytes) -> None:
+        msg = self._decoder_order_book_msg.decode(raw)
+        instrument_id: InstrumentId = self._get_cached_instrument_id(msg.code)
+        book_snapshot: OrderBookDeltas = msg.parse_to_order_book_snapshot(
+            instrument_id=instrument_id,
+            ts_init=self._clock.timestamp_ns(),
+        )
+        # Check if book buffer active
+        book_buffer: list[OrderBookDelta | OrderBookDeltas] | None = self._book_buffer.get(
+            instrument_id,
+        )
+        if book_buffer is not None:
+            book_buffer.append(book_snapshot)
+        else:
+            self._handle_data(book_snapshot)

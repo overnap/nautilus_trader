@@ -44,6 +44,7 @@ class UpbitWebSocketCodeType(Enum):
     TRADE = "trade"
     ORDERBOOK = "orderbook"
 
+
 @unique
 class UpbitRateLimitType(Enum):
     """
@@ -72,17 +73,18 @@ class UpbitCandleInterval(Enum):
     Represents a `Binance` kline chart interval.
     """
 
-    MINUTE_1 = "minutes/1"
-    MINUTE_3 = "minutes/3"
-    MINUTE_5 = "minutes/5"
-    MINUTE_15 = "minutes/15"
-    MINUTE_10 = "minutes/10"
-    MINUTE_30 = "minutes/30"
-    MINUTE_60 = "minutes/60"
-    MINUTE_240 = "minutes/240"
-    DAY_1 = "days"
-    WEEK_1 = "weeks"
-    MONTH_1 = "months"
+    MINUTE_1 = "1m"
+    MINUTE_3 = "3m"
+    MINUTE_5 = "5m"
+    MINUTE_15 = "15m"
+    MINUTE_10 = "10m"
+    MINUTE_30 = "30m"
+    MINUTE_60 = "1h"
+    MINUTE_240 = "4h"
+    DAY_1 = "1d"
+    WEEK_1 = "1w"
+    MONTH_1 = "1M"
+
 
 @unique
 class UpbitOrderbookLevel(Enum):
@@ -110,7 +112,6 @@ class UpbitOrderbookLevel(Enum):
     MINUS_6 = "-1000000"
     MINUS_7 = "-10000000"
     MINUS_8 = "-100000000"
-
 
 
 @unique
