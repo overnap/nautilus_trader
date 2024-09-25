@@ -20,7 +20,7 @@ use std::{
     hash::Hash,
 };
 
-use nautilus_core::correctness::check_valid_string;
+use nautilus_core::correctness::{check_valid_string, FAILED};
 use ustr::Ustr;
 
 /// Represents a valid ticker symbol ID for a tradable instrument.
@@ -33,15 +33,27 @@ use ustr::Ustr;
 pub struct Symbol(Ustr);
 
 impl Symbol {
+    /// Creates a new [`Symbol`] instance with correctness checking.
+    ///
+    /// # Error
+    ///
+    /// Returns an error if `value` is not a valid string.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
+    pub fn new_checked(value: &str) -> anyhow::Result<Self> {
+        check_valid_string(value, stringify!(value))?;
+        Ok(Self(Ustr::from(value)))
+    }
+
     /// Creates a new [`Symbol`] instance.
     ///
-    /// # Panics
+    /// # Panic
     ///
-    /// Panics if `value` is not a valid string.
-    pub fn new(value: &str) -> anyhow::Result<Self> {
-        check_valid_string(value, stringify!(value))?;
-
-        Ok(Self(Ustr::from(value)))
+    /// - If `value` is not a valid string.
+    pub fn new(value: &str) -> Self {
+        Self::new_checked(value).expect(FAILED)
     }
 
     /// Sets the inner identifier value.
@@ -82,12 +94,6 @@ impl Display for Symbol {
 impl From<Ustr> for Symbol {
     fn from(input: Ustr) -> Self {
         Self(input)
-    }
-}
-
-impl From<&str> for Symbol {
-    fn from(input: &str) -> Self {
-        Self::new(input).unwrap()
     }
 }
 

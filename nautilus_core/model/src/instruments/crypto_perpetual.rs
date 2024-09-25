@@ -16,7 +16,7 @@
 use std::hash::{Hash, Hasher};
 
 use nautilus_core::{
-    correctness::{check_equal_u8, check_positive_i64, check_positive_u64},
+    correctness::{check_equal_u8, check_positive_i64, check_positive_u64, FAILED},
     nanos::UnixNanos,
 };
 use rust_decimal::Decimal;
@@ -53,6 +53,7 @@ pub struct CryptoPerpetual {
     pub taker_fee: Decimal,
     pub margin_init: Decimal,
     pub margin_maint: Decimal,
+    pub multiplier: Quantity,
     pub lot_size: Quantity,
     pub max_quantity: Option<Quantity>,
     pub min_quantity: Option<Quantity>,
@@ -65,9 +66,13 @@ pub struct CryptoPerpetual {
 }
 
 impl CryptoPerpetual {
-    /// Creates a new [`CryptoPerpetual`] instance.
+    /// Creates a new [`CryptoPerpetual`] instance with correctness checking.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new_checked(
         id: InstrumentId,
         raw_symbol: Symbol,
         base_currency: Currency,
@@ -82,6 +87,7 @@ impl CryptoPerpetual {
         taker_fee: Decimal,
         margin_init: Decimal,
         margin_maint: Decimal,
+        multiplier: Option<Quantity>,
         lot_size: Option<Quantity>,
         max_quantity: Option<Quantity>,
         min_quantity: Option<Quantity>,
@@ -122,6 +128,7 @@ impl CryptoPerpetual {
             taker_fee,
             margin_init,
             margin_maint,
+            multiplier: multiplier.unwrap_or(Quantity::from(1)),
             lot_size: lot_size.unwrap_or(Quantity::from(1)),
             max_quantity,
             min_quantity,
@@ -132,6 +139,63 @@ impl CryptoPerpetual {
             ts_event,
             ts_init,
         })
+    }
+
+    /// Creates a new [`CryptoPerpetual`] instance
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: InstrumentId,
+        raw_symbol: Symbol,
+        base_currency: Currency,
+        quote_currency: Currency,
+        settlement_currency: Currency,
+        is_inverse: bool,
+        price_precision: u8,
+        size_precision: u8,
+        price_increment: Price,
+        size_increment: Quantity,
+        maker_fee: Decimal,
+        taker_fee: Decimal,
+        margin_init: Decimal,
+        margin_maint: Decimal,
+        multiplier: Option<Quantity>,
+        lot_size: Option<Quantity>,
+        max_quantity: Option<Quantity>,
+        min_quantity: Option<Quantity>,
+        max_notional: Option<Money>,
+        min_notional: Option<Money>,
+        max_price: Option<Price>,
+        min_price: Option<Price>,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self::new_checked(
+            id,
+            raw_symbol,
+            base_currency,
+            quote_currency,
+            settlement_currency,
+            is_inverse,
+            price_precision,
+            size_precision,
+            price_increment,
+            size_increment,
+            maker_fee,
+            taker_fee,
+            margin_init,
+            margin_maint,
+            multiplier,
+            lot_size,
+            max_quantity,
+            min_quantity,
+            max_notional,
+            min_notional,
+            max_price,
+            min_price,
+            ts_event,
+            ts_init,
+        )
+        .expect(FAILED)
     }
 }
 
@@ -227,7 +291,7 @@ impl Instrument for CryptoPerpetual {
     }
 
     fn multiplier(&self) -> Quantity {
-        Quantity::new(1.0, 0).unwrap()
+        Quantity::new(1.0, 0)
     }
 
     fn lot_size(&self) -> Option<Quantity> {

@@ -86,8 +86,8 @@ impl OrderFilled {
         reconciliation: bool,
         position_id: Option<PositionId>,
         commission: Option<Money>,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             trader_id,
             strategy_id,
             instrument_id,
@@ -107,7 +107,7 @@ impl OrderFilled {
             reconciliation,
             position_id,
             commission,
-        })
+        }
     }
 
     #[must_use]
@@ -140,7 +140,7 @@ impl Default for OrderFilled {
             position_id: None,
             order_side: OrderSide::Buy,
             order_type: OrderType::Market,
-            last_qty: Quantity::new(100_000.0, 0).unwrap(),
+            last_qty: Quantity::new(100_000.0, 0),
             last_px: Price::from("1.00000"),
             currency: Currency::USD(),
             commission: None,

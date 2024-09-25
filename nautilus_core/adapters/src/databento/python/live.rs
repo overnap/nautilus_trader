@@ -24,8 +24,6 @@ use nautilus_model::{
 };
 use pyo3::prelude::*;
 use time::OffsetDateTime;
-use tokio::sync::mpsc;
-use tracing::{debug, error, trace};
 
 use crate::databento::{
     live::{DatabentoFeedHandler, LiveCommand, LiveMessage},
@@ -46,8 +44,8 @@ pub struct DatabentoLiveClient {
     pub is_running: bool,
     #[pyo3(get)]
     pub is_closed: bool,
-    cmd_tx: mpsc::UnboundedSender<LiveCommand>,
-    cmd_rx: Option<mpsc::UnboundedReceiver<LiveCommand>>,
+    cmd_tx: tokio::sync::mpsc::UnboundedSender<LiveCommand>,
+    cmd_rx: Option<tokio::sync::mpsc::UnboundedReceiver<LiveCommand>>,
     buffer_size: usize,
     publisher_venue_map: IndexMap<u16, Venue>,
 }
@@ -59,14 +57,14 @@ impl DatabentoLiveClient {
     }
 
     async fn process_messages(
-        mut msg_rx: mpsc::Receiver<LiveMessage>,
+        mut msg_rx: tokio::sync::mpsc::Receiver<LiveMessage>,
         callback: PyObject,
         callback_pyo3: PyObject,
     ) -> PyResult<()> {
-        debug!("Processing messages...");
+        tracing::debug!("Processing messages...");
         // Continue to process messages until channel is hung up
         while let Some(msg) = msg_rx.recv().await {
-            trace!("Received message: {:?}", msg);
+            tracing::trace!("Received message: {:?}", msg);
             let result = match msg {
                 LiveMessage::Data(data) => Python::with_gil(|py| {
                     let py_obj = data_to_pycapsule(py, data);
@@ -103,7 +101,7 @@ impl DatabentoLiveClient {
         }
 
         msg_rx.close();
-        debug!("Closed message receiver");
+        tracing::debug!("Closed message receiver");
 
         Ok(())
     }
@@ -115,7 +113,7 @@ impl DatabentoLiveClient {
 
 fn call_python(py: Python, callback: &PyObject, py_obj: PyObject) -> PyResult<()> {
     callback.call1(py, (py_obj,)).map_err(|e| {
-        error!("Error calling Python: {e}");
+        tracing::error!("Error calling Python: {e}");
         e
     })?;
     Ok(())
@@ -133,7 +131,7 @@ impl DatabentoLiveClient {
             .map(|p| (p.publisher_id, Venue::from(p.venue.as_str())))
             .collect::<IndexMap<u16, Venue>>();
 
-        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<LiveCommand>();
+        let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel::<LiveCommand>();
 
         // Hard coded to a reasonable size for now
         let buffer_size = 100_000;
@@ -191,11 +189,11 @@ impl DatabentoLiveClient {
             return Err(to_pyruntime_err("Client already running"));
         };
 
-        debug!("Starting client");
+        tracing::debug!("Starting client");
 
         self.is_running = true;
 
-        let (msg_tx, msg_rx) = mpsc::channel::<LiveMessage>(self.buffer_size);
+        let (msg_tx, msg_rx) = tokio::sync::mpsc::channel::<LiveMessage>(self.buffer_size);
 
         // Consume the receiver
         // SAFETY: We guard the client from being started more than once with the
@@ -219,13 +217,13 @@ impl DatabentoLiveClient {
             );
 
             match proc_handle {
-                Ok(()) => debug!("Message processor completed"),
-                Err(e) => error!("Message processor error: {e}"),
+                Ok(()) => tracing::debug!("Message processor completed"),
+                Err(e) => tracing::error!("Message processor error: {e}"),
             }
 
             match feed_handle {
-                Ok(()) => debug!("Feed handler completed"),
-                Err(e) => error!("Feed handler error: {e}"),
+                Ok(()) => tracing::debug!("Feed handler completed"),
+                Err(e) => tracing::error!("Feed handler error: {e}"),
             }
 
             Ok(())
@@ -241,7 +239,7 @@ impl DatabentoLiveClient {
             return Err(to_pyruntime_err("Client already closed"));
         };
 
-        debug!("Closing client");
+        tracing::debug!("Closing client");
 
         if !self.is_closed() {
             self.send_command(LiveCommand::Close)?;

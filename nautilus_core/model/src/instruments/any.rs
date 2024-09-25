@@ -13,6 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
+use nautilus_core::nanos::UnixNanos;
 use rust_decimal::Decimal;
 
 use super::{
@@ -21,6 +22,7 @@ use super::{
     options_contract::OptionsContract, options_spread::OptionsSpread, Instrument,
 };
 use crate::{
+    enums::InstrumentClass,
     identifiers::InstrumentId,
     types::{currency::Currency, money::Money, price::Price, quantity::Quantity},
 };
@@ -193,7 +195,49 @@ impl InstrumentAny {
         }
     }
 
-    pub fn make_price(&self, value: f64) -> anyhow::Result<Price> {
+    #[must_use]
+    pub fn instrument_class(&self) -> InstrumentClass {
+        match self {
+            Self::CryptoFuture(inst) => inst.instrument_class(),
+            Self::CryptoPerpetual(inst) => inst.instrument_class(),
+            Self::CurrencyPair(inst) => inst.instrument_class(),
+            Self::Equity(inst) => inst.instrument_class(),
+            Self::FuturesContract(inst) => inst.instrument_class(),
+            Self::FuturesSpread(inst) => inst.instrument_class(),
+            Self::OptionsContract(inst) => inst.instrument_class(),
+            Self::OptionsSpread(inst) => inst.instrument_class(),
+        }
+    }
+
+    #[must_use]
+    pub fn activation_ns(&self) -> Option<UnixNanos> {
+        match self {
+            Self::CryptoFuture(inst) => inst.activation_ns(),
+            Self::CryptoPerpetual(inst) => inst.activation_ns(),
+            Self::CurrencyPair(inst) => inst.activation_ns(),
+            Self::Equity(inst) => inst.activation_ns(),
+            Self::FuturesContract(inst) => inst.activation_ns(),
+            Self::FuturesSpread(inst) => inst.activation_ns(),
+            Self::OptionsContract(inst) => inst.activation_ns(),
+            Self::OptionsSpread(inst) => inst.activation_ns(),
+        }
+    }
+
+    #[must_use]
+    pub fn expiration_ns(&self) -> Option<UnixNanos> {
+        match self {
+            Self::CryptoFuture(inst) => inst.expiration_ns(),
+            Self::CryptoPerpetual(inst) => inst.expiration_ns(),
+            Self::CurrencyPair(inst) => inst.expiration_ns(),
+            Self::Equity(inst) => inst.expiration_ns(),
+            Self::FuturesContract(inst) => inst.expiration_ns(),
+            Self::FuturesSpread(inst) => inst.expiration_ns(),
+            Self::OptionsContract(inst) => inst.expiration_ns(),
+            Self::OptionsSpread(inst) => inst.expiration_ns(),
+        }
+    }
+
+    pub fn make_price(&self, value: f64) -> Price {
         match self {
             Self::CryptoFuture(inst) => inst.make_price(value),
             Self::CryptoPerpetual(inst) => inst.make_price(value),
@@ -206,7 +250,7 @@ impl InstrumentAny {
         }
     }
 
-    pub fn make_qty(&self, value: f64) -> anyhow::Result<Quantity> {
+    pub fn make_qty(&self, value: f64) -> Quantity {
         match self {
             Self::CryptoFuture(inst) => inst.make_qty(value),
             Self::CryptoPerpetual(inst) => inst.make_qty(value),

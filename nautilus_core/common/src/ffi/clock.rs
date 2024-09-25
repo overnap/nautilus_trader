@@ -152,9 +152,7 @@ pub unsafe extern "C" fn test_clock_set_time_alert(
         }
     };
 
-    clock
-        .set_time_alert_ns(name, alert_time_ns, handler)
-        .unwrap();
+    clock.set_time_alert_ns(name, alert_time_ns, handler);
 }
 
 /// # Safety
@@ -185,9 +183,7 @@ pub unsafe extern "C" fn test_clock_set_timer(
         }
     };
 
-    clock
-        .set_timer_ns(name, interval_ns, start_time_ns, stop_time_ns, handler)
-        .unwrap();
+    clock.set_timer_ns(name, interval_ns, start_time_ns, stop_time_ns, handler);
 }
 
 /// # Safety
@@ -342,8 +338,9 @@ pub extern "C" fn live_clock_timer_count(clock: &mut LiveClock_API) -> usize {
 ///
 /// # Panics
 ///
-/// - Panics if `name` is not a valid string.
-/// - Panics if `callback_ptr` is NULL and no default callback has been assigned on the clock.
+/// This function panics:
+/// - If `name` is not a valid string.
+/// - If `callback_ptr` is NULL and no default callback has been assigned on the clock.
 #[no_mangle]
 pub unsafe extern "C" fn live_clock_set_time_alert(
     clock: &mut LiveClock_API,
@@ -362,9 +359,7 @@ pub unsafe extern "C" fn live_clock_set_time_alert(
         }
     };
 
-    clock
-        .set_time_alert_ns(name, alert_time_ns, handler)
-        .unwrap();
+    clock.set_time_alert_ns(name, alert_time_ns, handler);
 }
 
 /// # Safety
@@ -374,8 +369,9 @@ pub unsafe extern "C" fn live_clock_set_time_alert(
 ///
 /// # Panics
 ///
-/// - Panics if `name` is not a valid string.
-/// - Panics if `callback_ptr` is NULL and no default callback has been assigned on the clock.
+/// This function panics:
+/// - If `name` is not a valid string.
+/// - If `callback_ptr` is NULL and no default callback has been assigned on the clock.
 #[no_mangle]
 pub unsafe extern "C" fn live_clock_set_timer(
     clock: &mut LiveClock_API,
@@ -401,9 +397,7 @@ pub unsafe extern "C" fn live_clock_set_timer(
         }
     };
 
-    clock
-        .set_timer_ns(name, interval_ns, start_time_ns, stop_time_ns, handler)
-        .unwrap();
+    clock.set_timer_ns(name, interval_ns, start_time_ns, stop_time_ns, handler);
 }
 
 /// # Safety

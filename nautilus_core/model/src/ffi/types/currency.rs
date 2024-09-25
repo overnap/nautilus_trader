@@ -40,7 +40,6 @@ pub unsafe extern "C" fn currency_from_py(
         cstr_to_str(name_ptr),
         currency_type,
     )
-    .unwrap()
 }
 
 #[no_mangle]
@@ -103,7 +102,7 @@ mod tests {
 
     #[rstest]
     fn test_registration() {
-        let currency = Currency::new("MYC", 4, 0, "My Currency", CurrencyType::Crypto).unwrap();
+        let currency = Currency::new("MYC", 4, 0, "My Currency", CurrencyType::Crypto);
         currency_register(currency);
         unsafe {
             assert_eq!(currency_exists(str_to_cstr("MYC")), 1);
@@ -156,23 +155,5 @@ mod tests {
         let code = CString::new("USD").unwrap();
         let currency = unsafe { currency_from_cstr(code.as_ptr()) };
         assert_eq!(currency, Currency::USD());
-    }
-
-    #[rstest]
-    #[should_panic(expected = "`ptr` was NULL")]
-    fn test_currency_from_py_null_code_ptr() {
-        let name = CString::new("My Currency").unwrap();
-        let _ = unsafe {
-            currency_from_py(std::ptr::null(), 4, 0, name.as_ptr(), CurrencyType::Crypto)
-        };
-    }
-
-    #[rstest]
-    #[should_panic(expected = "`ptr` was NULL")]
-    fn test_currency_from_py_null_name_ptr() {
-        let code = CString::new("MYC").unwrap();
-        let _ = unsafe {
-            currency_from_py(code.as_ptr(), 4, 0, std::ptr::null(), CurrencyType::Crypto)
-        };
     }
 }

@@ -46,7 +46,7 @@ impl AccountState {
         ts_event: u64,
         ts_init: u64,
         base_currency: Option<Currency>,
-    ) -> PyResult<Self> {
+    ) -> Self {
         Self::new(
             account_id,
             account_type,
@@ -58,7 +58,6 @@ impl AccountState {
             ts_init.into(),
             base_currency,
         )
-        .map_err(to_pyvalue_err)
     }
 
     #[getter]
@@ -136,7 +135,7 @@ impl AccountState {
         let ts_event: u64 = dict.get_item("ts_event")?.unwrap().extract()?;
         let ts_init: u64 = dict.get_item("ts_init")?.unwrap().extract()?;
         let account = Self::new(
-            AccountId::from_str(account_id).unwrap(),
+            AccountId::from(account_id),
             AccountType::from_str(account_type).unwrap(),
             balances,
             margins,
@@ -145,8 +144,7 @@ impl AccountState {
             ts_event.into(),
             ts_init.into(),
             Some(Currency::from_str(base_currency).map_err(to_pyvalue_err)?),
-        )
-        .unwrap();
+        );
         Ok(account)
     }
 

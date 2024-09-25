@@ -24,7 +24,6 @@ use nautilus_core::{
 };
 use nautilus_model::identifiers::TraderId;
 use pyo3::{prelude::*, types::PyBytes};
-use tracing::error;
 
 use crate::redis::msgbus::RedisMessageBusDatabase;
 
@@ -36,10 +35,14 @@ impl RedisMessageBusDatabase {
         Self::new(trader_id, instance_id, config).map_err(to_pyvalue_err)
     }
 
+    #[pyo3(name = "is_closed")]
+    fn py_is_closed(&self) -> bool {
+        self.is_closed()
+    }
+
     #[pyo3(name = "publish")]
-    fn py_publish(&self, topic: String, payload: Vec<u8>) -> PyResult<()> {
+    fn py_publish(&self, topic: String, payload: Vec<u8>) {
         self.publish(topic, Bytes::from(payload))
-            .map_err(to_pyruntime_err)
     }
 
     #[pyo3(name = "stream")]
@@ -62,14 +65,14 @@ impl RedisMessageBusDatabase {
     }
 
     #[pyo3(name = "close")]
-    fn py_close(&mut self) -> PyResult<()> {
-        self.close().map_err(to_pyruntime_err)
+    fn py_close(&mut self) {
+        self.close()
     }
 }
 
 fn call_python(py: Python, callback: &PyObject, py_obj: PyObject) -> PyResult<()> {
     callback.call1(py, (py_obj,)).map_err(|e| {
-        error!("Error calling Python: {e}");
+        tracing::error!("Error calling Python: {e}");
         e
     })?;
     Ok(())

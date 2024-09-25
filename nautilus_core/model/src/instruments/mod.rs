@@ -95,12 +95,12 @@ pub trait Instrument: 'static + Send {
     fn ts_init(&self) -> UnixNanos;
 
     /// Creates a new `Price` from the given `value` with the correct price precision for the instrument.
-    fn make_price(&self, value: f64) -> anyhow::Result<Price> {
+    fn make_price(&self, value: f64) -> Price {
         Price::new(value, self.price_precision())
     }
 
     /// Creates a new `Quantity` from the given `value` with the correct size precision for the instrument.
-    fn make_qty(&self, value: f64) -> anyhow::Result<Quantity> {
+    fn make_qty(&self, value: f64) -> Quantity {
         Quantity::new(value, self.size_precision())
     }
 
@@ -109,7 +109,8 @@ pub trait Instrument: 'static + Send {
     ///
     /// # Panics
     ///
-    /// If instrument is inverse and not `use_quote_for_inverse`, with no base currency.
+    /// This function panics:
+    /// - If instrument is inverse and not `use_quote_for_inverse`, with no base currency.
     fn calculate_notional_value(
         &self,
         quantity: Quantity,
@@ -134,12 +135,19 @@ pub trait Instrument: 'static + Send {
             (amount, currency)
         };
 
-        Money::new(amount, currency).unwrap() // TODO: Handle error properly
+        Money::new(amount, currency)
     }
 
     /// Returns the equivalent quantity of the base asset.
     fn calculate_base_quantity(&self, quantity: Quantity, last_px: Price) -> Quantity {
         let value = quantity.as_f64() * (1.0 / last_px.as_f64());
-        Quantity::new(value, self.size_precision()).unwrap() // TODO: Handle error properly
+        Quantity::new(value, self.size_precision())
     }
 }
+
+pub const EXPIRING_INSTRUMENT_TYPES: [InstrumentClass; 4] = [
+    InstrumentClass::Future,
+    InstrumentClass::FutureSpread,
+    InstrumentClass::Option,
+    InstrumentClass::OptionSpread,
+];

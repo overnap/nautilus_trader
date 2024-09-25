@@ -21,8 +21,8 @@ import msgspec
 from nautilus_trader.accounting.accounts.margin import MarginAccount
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.common.enums import BinanceErrorCode
-from nautilus_trader.adapters.binance.common.execution import BinanceCommonExecutionClient
 from nautilus_trader.adapters.binance.config import BinanceExecClientConfig
+from nautilus_trader.adapters.binance.execution import BinanceCommonExecutionClient
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesEnumParser
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesEventType
 from nautilus_trader.adapters.binance.futures.http.account import BinanceFuturesAccountHttpAPI
@@ -30,6 +30,7 @@ from nautilus_trader.adapters.binance.futures.http.market import BinanceFuturesM
 from nautilus_trader.adapters.binance.futures.http.user import BinanceFuturesUserDataHttpAPI
 from nautilus_trader.adapters.binance.futures.providers import BinanceFuturesInstrumentProvider
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesAccountInfo
+from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesDualSidePosition
 from nautilus_trader.adapters.binance.futures.schemas.account import BinanceFuturesPositionRisk
 from nautilus_trader.adapters.binance.futures.schemas.user import BinanceFuturesAccountUpdateWrapper
 from nautilus_trader.adapters.binance.futures.schemas.user import BinanceFuturesOrderUpdateWrapper
@@ -54,7 +55,7 @@ from nautilus_trader.model.orders import Order
 
 class BinanceFuturesExecutionClient(BinanceCommonExecutionClient):
     """
-    Provides an execution client for the `Binance Futures` exchange.
+    Provides an execution client for the Binance Futures exchange.
 
     Parameters
     ----------
@@ -93,7 +94,7 @@ class BinanceFuturesExecutionClient(BinanceCommonExecutionClient):
         config: BinanceExecClientConfig,
         account_type: BinanceAccountType = BinanceAccountType.USDT_FUTURE,
         name: str | None = None,
-    ):
+    ) -> None:
         PyCondition.true(
             account_type.is_futures,
             "account_type was not USDT_FUTURE or COIN_FUTURE",
@@ -168,6 +169,19 @@ class BinanceFuturesExecutionClient(BinanceCommonExecutionClient):
             leverage = Decimal(position.leverage)
             account.set_leverage(instrument_id, leverage)
             self._log.debug(f"Set leverage {position.symbol} {leverage}X")
+
+    async def _init_dual_side_position(self) -> None:
+        binance_futures_dual_side_position: BinanceFuturesDualSidePosition = (
+            await self._futures_http_account.query_futures_hedge_mode()
+        )
+        # "true": Hedge Mode; "false": One-way Mode
+        self._is_dual_side_position = binance_futures_dual_side_position.dualSidePosition
+        if self._is_dual_side_position:
+            PyCondition.false(
+                self._use_reduce_only,
+                "Cannot use `reduce_only` with Binance Hedge Mode",
+            )
+        self._log.info(f"Dual side position: {self._is_dual_side_position}", LogColor.BLUE)
 
     # -- EXECUTION REPORTS ------------------------------------------------------------------------
 
@@ -256,12 +270,9 @@ class BinanceFuturesExecutionClient(BinanceCommonExecutionClient):
     # -- WEBSOCKET EVENT HANDLERS --------------------------------------------------------------------
 
     def _handle_user_ws_message(self, raw: bytes) -> None:
-        # TODO: Uncomment for development
-        # self._log.info(str(json.dumps(msgspec.json.decode(raw), indent=4)), color=LogColor.MAGENTA)
         wrapper = self._decoder_futures_user_msg_wrapper.decode(raw)
         if not wrapper.stream or not wrapper.data:
-            # Control message response
-            return
+            return  # Control message response
         try:
             self._futures_user_ws_handlers[wrapper.data.e](raw)
         except Exception as e:

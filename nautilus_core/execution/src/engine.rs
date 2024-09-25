@@ -25,7 +25,6 @@ use std::{
     rc::Rc,
 };
 
-use log::debug;
 use nautilus_common::{
     cache::Cache, clock::Clock, generators::position_id::PositionIdGenerator, msgbus::MessageBus,
 };
@@ -150,20 +149,18 @@ where
     // -- COMMAND HANDLERS ----------------------------------------------------
 
     fn execute_command(&self, command: TradingCommand) {
-        debug!("<--[CMD] {:?}", command); // TODO: Log constants
+        log::debug!("<--[CMD] {:?}", command); // TODO: Log constants
 
-        // TODO: Refine getting the client (no need for two expects)
-        let client = if let Some(client) = self.clients.get(&command.client_id()) {
-            client
-        } else if let Some(client_id) = self.routing_map.get(&command.instrument_id().venue) {
-            if let Some(client) = self.clients.get(client_id) {
-                client
-            } else {
-                self.default_client.as_ref().expect("No client found")
-            }
-        } else {
-            self.default_client.as_ref().expect("No client found")
-        };
+        let client = self
+            .clients
+            .get(&command.client_id())
+            .or_else(|| {
+                self.routing_map
+                    .get(&command.instrument_id().venue)
+                    .and_then(|client_id| self.clients.get(client_id))
+            })
+            .or(self.default_client.as_ref())
+            .expect("No client found");
 
         match command {
             TradingCommand::SubmitOrder(cmd) => self.handle_submit_order(client, cmd),

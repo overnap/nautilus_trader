@@ -17,7 +17,7 @@ use std::hash::{Hash, Hasher};
 
 use nautilus_core::{
     correctness::{
-        check_equal_u8, check_positive_i64, check_valid_string, check_valid_string_optional,
+        check_equal_u8, check_positive_i64, check_valid_string, check_valid_string_optional, FAILED,
     },
     nanos::UnixNanos,
 };
@@ -67,9 +67,13 @@ pub struct FuturesSpread {
 }
 
 impl FuturesSpread {
-    /// Creates a new [`FuturesSpread`] instance.
+    /// Creates a new [`FuturesSpread`] instance with correctness checking.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new_checked(
         id: InstrumentId,
         raw_symbol: Symbol,
         asset_class: AssetClass,
@@ -102,7 +106,6 @@ impl FuturesSpread {
             stringify!(price_increment.precision),
         )?;
         check_positive_i64(price_increment.raw, stringify!(price_increment.raw))?;
-
         Ok(Self {
             id,
             raw_symbol,
@@ -128,6 +131,57 @@ impl FuturesSpread {
             ts_event,
             ts_init,
         })
+    }
+
+    /// Creates a new [`FuturesSpread`] instance.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: InstrumentId,
+        raw_symbol: Symbol,
+        asset_class: AssetClass,
+        exchange: Option<Ustr>,
+        underlying: Ustr,
+        strategy_type: Ustr,
+        activation_ns: UnixNanos,
+        expiration_ns: UnixNanos,
+        currency: Currency,
+        price_precision: u8,
+        price_increment: Price,
+        multiplier: Quantity,
+        lot_size: Quantity,
+        max_quantity: Option<Quantity>,
+        min_quantity: Option<Quantity>,
+        max_price: Option<Price>,
+        min_price: Option<Price>,
+        margin_init: Option<Decimal>,
+        margin_maint: Option<Decimal>,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self::new_checked(
+            id,
+            raw_symbol,
+            asset_class,
+            exchange,
+            underlying,
+            strategy_type,
+            activation_ns,
+            expiration_ns,
+            currency,
+            price_precision,
+            price_increment,
+            multiplier,
+            lot_size,
+            max_quantity,
+            min_quantity,
+            max_price,
+            min_price,
+            margin_init,
+            margin_maint,
+            ts_event,
+            ts_init,
+        )
+        .expect(FAILED)
     }
 }
 

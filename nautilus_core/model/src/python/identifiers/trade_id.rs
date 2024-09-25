@@ -20,20 +20,21 @@ use std::{
     str::FromStr,
 };
 
-use nautilus_core::python::to_pyvalue_err;
+use nautilus_core::{correctness::check_in_range_inclusive_usize, python::to_pyvalue_err};
 use pyo3::{
+    exceptions::PyValueError,
     prelude::*,
     pyclass::CompareOp,
     types::{PyString, PyTuple},
 };
 
-use crate::identifiers::trade_id::TradeId;
+use crate::identifiers::trade_id::{TradeId, TRADE_ID_LEN};
 
 #[pymethods]
 impl TradeId {
     #[new]
     fn py_new(value: &str) -> PyResult<Self> {
-        Self::new(value).map_err(to_pyvalue_err)
+        Self::new_checked(value).map_err(to_pyvalue_err)
     }
 
     fn __setstate__(&mut self, py: Python, state: PyObject) -> PyResult<()> {
@@ -43,7 +44,7 @@ impl TradeId {
         // TODO: Extract this to single function
         let c_string = CString::new(value_str).expect("`CString` conversion failed");
         let bytes = c_string.as_bytes_with_nul();
-        let mut value = [0; 37];
+        let mut value = [0; TRADE_ID_LEN];
         value[..bytes.len()].copy_from_slice(bytes);
         self.value = value;
 
@@ -61,8 +62,8 @@ impl TradeId {
     }
 
     #[staticmethod]
-    fn _safe_constructor() -> PyResult<Self> {
-        Ok(Self::from_str("NULL").unwrap()) // Safe default
+    fn _safe_constructor() -> Self {
+        Self::from("NULL")
     }
 
     fn __richcmp__(&self, other: PyObject, op: CompareOp, py: Python<'_>) -> Py<PyAny> {
@@ -99,7 +100,7 @@ impl TradeId {
     #[staticmethod]
     #[pyo3(name = "from_str")]
     fn py_from_str(value: &str) -> PyResult<Self> {
-        Self::new(value).map_err(to_pyvalue_err)
+        Self::new_checked(value).map_err(to_pyvalue_err)
     }
 }
 

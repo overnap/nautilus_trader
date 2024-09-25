@@ -56,7 +56,7 @@ impl FuturesContract {
         min_price: Option<Price>,
         exchange: Option<String>,
     ) -> PyResult<Self> {
-        Self::new(
+        Self::new_checked(
             id,
             raw_symbol,
             asset_class,

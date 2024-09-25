@@ -44,6 +44,9 @@ config_node = TradingNodeConfig(
     exec_engine=LiveExecEngineConfig(
         reconciliation=True,
         reconciliation_lookback_mins=1440,
+        # snapshot_orders=True,
+        # snapshot_positions=True,
+        # snapshot_positions_interval_secs=5.0,
     ),
     # cache=CacheConfig(
     #     database=DatabaseConfig(),
@@ -57,11 +60,8 @@ config_node = TradingNodeConfig(
     #     timestamps_as_iso8601=True,
     #     # types_filter=[QuoteTick],
     #     autotrim_mins=1,
+    #     heartbeat_interval_secs=1,
     # ),
-    # heartbeat_interval=1.0,
-    # snapshot_orders=True,
-    # snapshot_positions=True,
-    # snapshot_positions_interval=5.0,
     data_clients={
         "BINANCE": BinanceDataClientConfig(
             api_key=None,  # 'BINANCE_API_KEY' env var
@@ -84,6 +84,8 @@ config_node = TradingNodeConfig(
             us=False,  # If client is for Binance US
             testnet=False,  # If client uses the testnet
             instrument_provider=InstrumentProviderConfig(load_all=True),
+            max_retries=3,
+            retry_delay=1.0,
         ),
     },
     timeout_connection=30.0,

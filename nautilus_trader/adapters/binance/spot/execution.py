@@ -18,8 +18,8 @@ import asyncio
 import msgspec
 
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
-from nautilus_trader.adapters.binance.common.execution import BinanceCommonExecutionClient
 from nautilus_trader.adapters.binance.config import BinanceExecClientConfig
+from nautilus_trader.adapters.binance.execution import BinanceCommonExecutionClient
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.enums import BinanceSpotEnumParser
 from nautilus_trader.adapters.binance.spot.enums import BinanceSpotEventType
@@ -47,7 +47,7 @@ from nautilus_trader.model.orders import Order
 
 class BinanceSpotExecutionClient(BinanceCommonExecutionClient):
     """
-    Provides an execution client for the `Binance Spot/Margin` exchange.
+    Provides an execution client for the Binance Spot/Margin exchange.
 
     Parameters
     ----------
@@ -86,7 +86,7 @@ class BinanceSpotExecutionClient(BinanceCommonExecutionClient):
         config: BinanceExecClientConfig,
         account_type: BinanceAccountType = BinanceAccountType.SPOT,
         name: str | None = None,
-    ):
+    ) -> None:
         PyCondition.true(
             account_type.is_spot_or_margin,
             "account_type was not SPOT, MARGIN or ISOLATED_MARGIN",
@@ -155,6 +155,10 @@ class BinanceSpotExecutionClient(BinanceCommonExecutionClient):
         while self.get_account() is None:
             await asyncio.sleep(0.1)
 
+    async def _init_dual_side_position(self) -> None:
+        self._is_dual_side_position = False
+        self._log.info(f"Dual side position: {self._is_dual_side_position}", LogColor.BLUE)
+
     # -- EXECUTION REPORTS ------------------------------------------------------------------------
 
     async def _get_binance_position_status_reports(
@@ -208,8 +212,6 @@ class BinanceSpotExecutionClient(BinanceCommonExecutionClient):
     # -- WEBSOCKET EVENT HANDLERS --------------------------------------------------------------------
 
     def _handle_user_ws_message(self, raw: bytes) -> None:
-        # TODO: Uncomment for development
-        # self._log.info(str(json.dumps(msgspec.json.decode(raw), indent=4)), color=LogColor.MAGENTA)
         wrapper = self._decoder_spot_user_msg_wrapper.decode(raw)
         try:
             self._spot_user_ws_handlers[wrapper.data.e](raw)

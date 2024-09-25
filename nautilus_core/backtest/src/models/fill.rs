@@ -13,7 +13,9 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use nautilus_core::correctness::check_in_range_inclusive_f64;
+use std::fmt::Display;
+
+use nautilus_core::correctness::{check_in_range_inclusive_f64, FAILED};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
@@ -36,9 +38,11 @@ impl FillModel {
         prob_slippage: f64,
         random_seed: Option<u64>,
     ) -> anyhow::Result<Self> {
-        check_in_range_inclusive_f64(prob_fill_on_limit, 0.0, 1.0, "prob_fill_on_limit").unwrap();
-        check_in_range_inclusive_f64(prob_fill_on_stop, 0.0, 1.0, "prob_fill_on_stop").unwrap();
-        check_in_range_inclusive_f64(prob_slippage, 0.0, 1.0, "prob_slippage").unwrap();
+        check_in_range_inclusive_f64(prob_fill_on_limit, 0.0, 1.0, "prob_fill_on_limit")
+            .expect(FAILED);
+        check_in_range_inclusive_f64(prob_fill_on_stop, 0.0, 1.0, "prob_fill_on_stop")
+            .expect(FAILED);
+        check_in_range_inclusive_f64(prob_slippage, 0.0, 1.0, "prob_slippage").expect(FAILED);
         let rng = match random_seed {
             Some(seed) => ChaChaRng::seed_from_u64(seed),
             None => ChaChaRng::from_entropy(),
@@ -69,6 +73,22 @@ impl FillModel {
             1.0 => true,
             _ => self.rng.gen_bool(probability),
         }
+    }
+}
+
+impl Display for FillModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "FillModel(prob_fill_on_limit: {}, prob_fill_on_stop: {}, prob_slippage: {})",
+            self.prob_fill_on_limit, self.prob_fill_on_stop, self.prob_slippage
+        )
+    }
+}
+
+impl Default for FillModel {
+    fn default() -> Self {
+        Self::new(0.5, 0.5, 0.1, None).unwrap()
     }
 }
 

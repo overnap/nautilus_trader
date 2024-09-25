@@ -25,6 +25,7 @@ from nautilus_trader.adapters.bybit.common.enums import BybitOrderSide
 from nautilus_trader.adapters.bybit.common.enums import BybitOrderStatus
 from nautilus_trader.adapters.bybit.common.enums import BybitOrderType
 from nautilus_trader.adapters.bybit.common.enums import BybitPositionIdx
+from nautilus_trader.adapters.bybit.common.enums import BybitProductType
 from nautilus_trader.adapters.bybit.common.enums import BybitStopOrderType
 from nautilus_trader.adapters.bybit.common.enums import BybitTimeInForce
 from nautilus_trader.adapters.bybit.common.enums import BybitTriggerDirection
@@ -144,85 +145,6 @@ class BybitWsOrderbookDepth(msgspec.Struct):
     # Cross sequence
     seq: int
 
-    def parse_to_snapshot(
-        self,
-        instrument_id: InstrumentId,
-        price_precision: int | None,
-        size_precision: int | None,
-        ts_event: int,
-        ts_init: int,
-    ) -> OrderBookDeltas:
-        bids_raw = [
-            (
-                Price(float(d[0]), price_precision),
-                Quantity(float(d[1]), size_precision),
-            )
-            for d in self.b
-        ]
-        asks_raw = [
-            (
-                Price(float(d[0]), price_precision),
-                Quantity(float(d[1]), size_precision),
-            )
-            for d in self.a
-        ]
-        deltas: list[OrderBookDelta] = []
-
-        # Add initial clear
-        clear = OrderBookDelta.clear(
-            instrument_id=instrument_id,
-            sequence=self.seq,
-            ts_event=ts_event,
-            ts_init=ts_init,
-        )
-        deltas.append(clear)
-        num_bids_raw = len(bids_raw)
-        num_asks_raw = len(asks_raw)
-
-        for bid_id, bid in enumerate(bids_raw):
-            flags = 0
-
-            if bid_id == num_bids_raw - 1 and num_asks_raw == 0:
-                # F_LAST, 1 << 7
-                # Last message in the packet from the venue for a given `instrument_id`
-                flags = RecordFlag.F_LAST
-
-            delta = parse_bybit_delta(
-                instrument_id=instrument_id,
-                values=bid,
-                side=OrderSide.BUY,
-                update_id=self.u,
-                sequence=self.seq,
-                ts_event=ts_event,
-                ts_init=ts_init,
-                is_snapshot=True,
-                flags=flags,
-            )
-            deltas.append(delta)
-
-        for ask_id, ask in enumerate(asks_raw):
-            flags = 0
-
-            if ask_id == num_asks_raw - 1:
-                # F_LAST, 1 << 7
-                # Last message in the packet from the venue for a given `instrument_id`
-                flags = RecordFlag.F_LAST
-
-            delta = parse_bybit_delta(
-                instrument_id=instrument_id,
-                values=ask,
-                side=OrderSide.SELL,
-                update_id=self.u,
-                sequence=self.seq,
-                ts_event=ts_event,
-                ts_init=ts_init,
-                is_snapshot=True,
-                flags=flags,
-            )
-            deltas.append(delta)
-
-        return OrderBookDeltas(instrument_id=instrument_id, deltas=deltas)
-
     def parse_to_deltas(
         self,
         instrument_id: InstrumentId,
@@ -230,6 +152,7 @@ class BybitWsOrderbookDepth(msgspec.Struct):
         size_precision: int | None,
         ts_event: int,
         ts_init: int,
+        snapshot: bool = False,
     ) -> OrderBookDeltas:
         bids_raw = [
             (
@@ -245,13 +168,16 @@ class BybitWsOrderbookDepth(msgspec.Struct):
             )
             for d in self.a
         ]
-        deltas: list[OrderBookDelta] = []
+
         num_bids_raw = len(bids_raw)
         num_asks_raw = len(asks_raw)
+        deltas: list[OrderBookDelta] = []
+
+        if snapshot:
+            deltas.append(OrderBookDelta.clear(instrument_id, 0, ts_event, ts_init))
 
         for bid_id, bid in enumerate(bids_raw):
             flags = 0
-
             if bid_id == num_bids_raw - 1 and num_asks_raw == 0:
                 # F_LAST, 1 << 7
                 # Last message in the packet from the venue for a given `instrument_id`
@@ -262,17 +188,16 @@ class BybitWsOrderbookDepth(msgspec.Struct):
                 values=bid,
                 side=OrderSide.BUY,
                 update_id=self.u,
+                flags=flags,
                 sequence=self.seq,
                 ts_event=ts_event,
                 ts_init=ts_init,
-                is_snapshot=False,
-                flags=flags,
+                snapshot=snapshot,
             )
             deltas.append(delta)
 
         for ask_id, ask in enumerate(asks_raw):
             flags = 0
-
             if ask_id == num_asks_raw - 1:
                 # F_LAST, 1 << 7
                 # Last message in the packet from the venue for a given `instrument_id`
@@ -283,11 +208,11 @@ class BybitWsOrderbookDepth(msgspec.Struct):
                 values=ask,
                 side=OrderSide.SELL,
                 update_id=self.u,
+                flags=flags,
                 sequence=self.seq,
                 ts_event=ts_event,
                 ts_init=ts_init,
-                is_snapshot=False,
-                flags=flags,
+                snapshot=snapshot,
             )
             deltas.append(delta)
 
@@ -600,7 +525,7 @@ class BybitWsAccountPositionMsg(msgspec.Struct):
 
 
 class BybitWsAccountOrder(msgspec.Struct):
-    category: str
+    category: BybitProductType
     symbol: str
     orderId: str
     side: BybitOrderSide
@@ -709,7 +634,7 @@ class BybitWsAccountOrderMsg(msgspec.Struct):
 
 
 class BybitWsAccountExecution(msgspec.Struct):
-    category: str
+    category: BybitProductType
     symbol: str
     execFee: str
     execId: str

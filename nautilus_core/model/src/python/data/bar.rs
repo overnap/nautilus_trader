@@ -80,17 +80,14 @@ impl BarSpecification {
 #[pymethods]
 impl BarType {
     #[new]
-    #[pyo3(signature = (instrument_id, spec, aggregation_source = AggregationSource::External))]
+    #[pyo3(signature = (instrument_id, spec, aggregation_source = AggregationSource::External)
+    )]
     fn py_new(
         instrument_id: InstrumentId,
         spec: BarSpecification,
         aggregation_source: AggregationSource,
     ) -> Self {
-        Self {
-            instrument_id,
-            spec,
-            aggregation_source,
-        }
+        Self::new(instrument_id, spec, aggregation_source)
     }
 
     fn __richcmp__(&self, other: &Self, op: CompareOp, py: Python<'_>) -> Py<PyAny> {
@@ -126,6 +123,46 @@ impl BarType {
     fn py_from_str(value: &str) -> PyResult<Self> {
         Self::from_str(value).map_err(to_pyvalue_err)
     }
+
+    #[staticmethod]
+    #[pyo3(name = "new_composite")]
+    fn py_new_composite(
+        instrument_id: InstrumentId,
+        spec: BarSpecification,
+        aggregation_source: AggregationSource,
+        composite_step: usize,
+        composite_aggregation: BarAggregation,
+        composite_aggregation_source: AggregationSource,
+    ) -> Self {
+        Self::new_composite(
+            instrument_id,
+            spec,
+            aggregation_source,
+            composite_step,
+            composite_aggregation,
+            composite_aggregation_source,
+        )
+    }
+
+    #[pyo3(name = "is_standard")]
+    fn py_is_standard(&self) -> bool {
+        self.is_standard()
+    }
+
+    #[pyo3(name = "is_composite")]
+    fn py_is_composite(&self) -> bool {
+        self.is_composite()
+    }
+
+    #[pyo3(name = "standard")]
+    fn py_standard(&self) -> Self {
+        self.standard()
+    }
+
+    #[pyo3(name = "composite")]
+    fn py_composite(&self) -> Self {
+        self.composite()
+    }
 }
 
 impl Bar {
@@ -139,24 +176,24 @@ impl Bar {
         let open_py: &PyAny = obj.getattr("open")?;
         let price_prec: u8 = open_py.getattr("precision")?.extract()?;
         let open_raw: i64 = open_py.getattr("raw")?.extract()?;
-        let open = Price::from_raw(open_raw, price_prec).map_err(to_pyvalue_err)?;
+        let open = Price::from_raw(open_raw, price_prec);
 
         let high_py: &PyAny = obj.getattr("high")?;
         let high_raw: i64 = high_py.getattr("raw")?.extract()?;
-        let high = Price::from_raw(high_raw, price_prec).map_err(to_pyvalue_err)?;
+        let high = Price::from_raw(high_raw, price_prec);
 
         let low_py: &PyAny = obj.getattr("low")?;
         let low_raw: i64 = low_py.getattr("raw")?.extract()?;
-        let low = Price::from_raw(low_raw, price_prec).map_err(to_pyvalue_err)?;
+        let low = Price::from_raw(low_raw, price_prec);
 
         let close_py: &PyAny = obj.getattr("close")?;
         let close_raw: i64 = close_py.getattr("raw")?.extract()?;
-        let close = Price::from_raw(close_raw, price_prec).map_err(to_pyvalue_err)?;
+        let close = Price::from_raw(close_raw, price_prec);
 
         let volume_py: &PyAny = obj.getattr("volume")?;
         let volume_raw: u64 = volume_py.getattr("raw")?.extract()?;
         let volume_prec: u8 = volume_py.getattr("precision")?.extract()?;
-        let volume = Quantity::from_raw(volume_raw, volume_prec).map_err(to_pyvalue_err)?;
+        let volume = Quantity::from_raw(volume_raw, volume_prec);
 
         let ts_event: u64 = obj.getattr("ts_event")?.extract()?;
         let ts_init: u64 = obj.getattr("ts_init")?.extract()?;

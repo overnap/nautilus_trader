@@ -20,7 +20,7 @@ use std::{
 
 use derive_builder::Builder;
 use evalexpr::{ContextWithMutableVariables, HashMapContext, Node, Value};
-use nautilus_core::nanos::UnixNanos;
+use nautilus_core::{correctness::FAILED, nanos::UnixNanos};
 
 use crate::{
     identifiers::{InstrumentId, Symbol, Venue},
@@ -48,8 +48,12 @@ pub struct SyntheticInstrument {
 }
 
 impl SyntheticInstrument {
-    /// Creates a new [`SyntheticInstrument`] instance.
-    pub fn new(
+    /// Creates a new [`SyntheticInstrument`] instance with correctness checking.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
+    pub fn new_checked(
         symbol: Symbol,
         price_precision: u8,
         components: Vec<InstrumentId>,
@@ -57,7 +61,7 @@ impl SyntheticInstrument {
         ts_event: UnixNanos,
         ts_init: UnixNanos,
     ) -> anyhow::Result<Self> {
-        let price_increment = Price::new(10f64.powi(-i32::from(price_precision)), price_precision)?;
+        let price_increment = Price::new(10f64.powi(-i32::from(price_precision)), price_precision);
 
         // Extract variables from the component instruments
         let variables: Vec<String> = components
@@ -79,6 +83,26 @@ impl SyntheticInstrument {
             ts_event,
             ts_init,
         })
+    }
+
+    /// Creates a new [`SyntheticInstrument`] instance
+    pub fn new(
+        symbol: Symbol,
+        price_precision: u8,
+        components: Vec<InstrumentId>,
+        formula: String,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self::new_checked(
+            symbol,
+            price_precision,
+            components,
+            formula,
+            ts_event,
+            ts_init,
+        )
+        .expect(FAILED)
     }
 
     #[must_use]
@@ -103,7 +127,8 @@ impl SyntheticInstrument {
             if let Some(&value) = inputs.get(variable) {
                 input_values.push(value);
                 self.context
-                    .set_value(variable.clone(), Value::from(value))?;
+                    .set_value(variable.clone(), Value::from(value))
+                    .expect("TODO: Unable to set value");
             } else {
                 panic!("Missing price for component: {variable}");
             }
@@ -127,7 +152,7 @@ impl SyntheticInstrument {
         let result: Value = self.operator_tree.eval_with_context(&self.context)?;
 
         match result {
-            Value::Float(price) => Price::new(price, self.price_precision),
+            Value::Float(price) => Ok(Price::new(price, self.price_precision)),
             _ => Err(anyhow::anyhow!(
                 "Failed to evaluate formula to a floating point number"
             )),

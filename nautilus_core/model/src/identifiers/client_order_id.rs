@@ -20,7 +20,7 @@ use std::{
     hash::Hash,
 };
 
-use nautilus_core::correctness::check_valid_string;
+use nautilus_core::correctness::{check_valid_string, FAILED};
 use ustr::Ustr;
 
 /// Represents a valid client order ID (assigned by the Nautilus system).
@@ -33,15 +33,29 @@ use ustr::Ustr;
 pub struct ClientOrderId(Ustr);
 
 impl ClientOrderId {
+    /// Creates a new [`ClientOrderId`] instance with correctness checking.
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error:
+    /// - If `value` is not a valid string.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
+    pub fn new_checked(value: &str) -> anyhow::Result<Self> {
+        check_valid_string(value, stringify!(value))?;
+        Ok(Self(Ustr::from(value)))
+    }
+
     /// Creates a new [`ClientOrderId`] instance.
     ///
     /// # Panics
     ///
-    /// Panics if `value` is not a valid string.
-    pub fn new(value: &str) -> anyhow::Result<Self> {
-        check_valid_string(value, stringify!(value))?;
-
-        Ok(Self(Ustr::from(value)))
+    /// This function panics:
+    /// - If `value` is not a valid string.
+    pub fn new(value: &str) -> Self {
+        Self::new_checked(value).expect(FAILED)
     }
 
     /// Sets the inner identifier value.
@@ -80,7 +94,7 @@ pub fn optional_ustr_to_vec_client_order_ids(s: Option<Ustr>) -> Option<Vec<Clie
         let s_str = ustr.to_string();
         s_str
             .split(',')
-            .map(|s| ClientOrderId::new(s).unwrap())
+            .map(ClientOrderId::new)
             .collect::<Vec<ClientOrderId>>()
     })
 }
@@ -95,12 +109,6 @@ pub fn optional_vec_client_order_ids_to_ustr(vec: Option<Vec<ClientOrderId>>) ->
             .join(",");
         Ustr::from(&s)
     })
-}
-
-impl From<&str> for ClientOrderId {
-    fn from(input: &str) -> Self {
-        Self::new(input).unwrap()
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

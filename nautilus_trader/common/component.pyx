@@ -1167,7 +1167,7 @@ cdef class Logger:
         LogColor color = LogColor.NORMAL,
     ):
         """
-        Log the given debug level message.
+        Log the given DEBUG level message.
 
         Parameters
         ----------
@@ -1201,7 +1201,7 @@ cdef class Logger:
         LogColor color = LogColor.NORMAL,
     ):
         """
-        Log the given information level message.
+        Log the given INFO level message.
 
         Parameters
         ----------
@@ -1236,7 +1236,7 @@ cdef class Logger:
         LogColor color = LogColor.YELLOW,
     ):
         """
-        Log the given warning level message.
+        Log the given WARNING level message.
 
         Parameters
         ----------
@@ -1271,7 +1271,7 @@ cdef class Logger:
         LogColor color = LogColor.RED,
     ):
         """
-        Log the given error level message.
+        Log the given ERROR level message.
 
         Parameters
         ----------
@@ -1971,10 +1971,6 @@ cdef class MessageBus:
         The serializer for database operations.
     database : nautilus_pyo3.RedisMessageBusDatabase, optional
         The backing database for the message bus.
-    snapshot_orders : bool, default False
-        If order state snapshots should be published externally.
-    snapshot_positions : bool, default False
-        If position state snapshots should be published externally.
     config : MessageBusConfig, optional
         The configuration for the message bus.
 
@@ -1997,8 +1993,6 @@ cdef class MessageBus:
         str name = None,
         Serializer serializer = None,
         database: nautilus_pyo3.RedisMessageBusDatabase | None = None,
-        bint snapshot_orders: bool = False,
-        bint snapshot_positions: bool = False,
         config: Any | None = None,
     ) -> None:
         # Temporary fix for import error
@@ -2016,8 +2010,6 @@ cdef class MessageBus:
         self.trader_id = trader_id
         self.serializer = serializer
         self.has_backing = database is not None
-        self.snapshot_orders = snapshot_orders
-        self.snapshot_positions = snapshot_positions
 
         self._clock = clock
         self._log = Logger(name)
@@ -2265,7 +2257,11 @@ cdef class MessageBus:
             The type to add for streaming.
 
         """
+        Condition.not_none(cls, "cls")
+
         self._streaming_types.add(cls)
+
+        self._log.debug(f"Added streaming type {cls}")
 
     cpdef void send(self, str endpoint, msg: Any):
         """
@@ -2513,7 +2509,7 @@ cdef class MessageBus:
 
         # Publish externally (if configured)
         cdef bytes payload_bytes
-        if external_pub and self._database is not None and self.serializer is not None:
+        if external_pub and self._database is not None and not self._database.is_closed() and self.serializer is not None:
             if isinstance(msg, self._publishable_types):
                 if isinstance(msg, bytes):
                     payload_bytes = msg

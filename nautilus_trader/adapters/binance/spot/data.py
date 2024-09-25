@@ -17,9 +17,9 @@ import asyncio
 
 import msgspec
 
-from nautilus_trader.adapters.binance.common.data import BinanceCommonDataClient
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
+from nautilus_trader.adapters.binance.data import BinanceCommonDataClient
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.spot.enums import BinanceSpotEnumParser
 from nautilus_trader.adapters.binance.spot.http.market import BinanceSpotMarketHttpAPI
@@ -38,7 +38,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 
 class BinanceSpotDataClient(BinanceCommonDataClient):
     """
-    Provides a data client for the `Binance Spot/Margin` exchange.
+    Provides a data client for the Binance Spot/Margin exchange.
 
     Parameters
     ----------
@@ -77,7 +77,7 @@ class BinanceSpotDataClient(BinanceCommonDataClient):
         config: BinanceDataClientConfig,
         account_type: BinanceAccountType = BinanceAccountType.SPOT,
         name: str | None = None,
-    ):
+    ) -> None:
         PyCondition.true(
             account_type.is_spot_or_margin,
             "account_type was not SPOT, MARGIN or ISOLATED_MARGIN",

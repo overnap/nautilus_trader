@@ -24,7 +24,7 @@
 use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
-use nautilus_core::correctness::{check_equal_usize, check_map_not_empty};
+use nautilus_core::correctness::{check_equal_usize, check_map_not_empty, FAILED};
 use nautilus_model::{enums::PriceType, identifiers::Symbol, types::currency::Currency};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -42,14 +42,15 @@ pub fn get_exchange_rate(
     quotes_bid: HashMap<Symbol, Decimal>,
     quotes_ask: HashMap<Symbol, Decimal>,
 ) -> anyhow::Result<Decimal> {
-    check_map_not_empty(&quotes_bid, stringify!(quotes_bid))?;
-    check_map_not_empty(&quotes_ask, stringify!(quotes_ask))?;
+    check_map_not_empty(&quotes_bid, stringify!(quotes_bid)).expect(FAILED);
+    check_map_not_empty(&quotes_ask, stringify!(quotes_ask)).expect(FAILED);
     check_equal_usize(
         quotes_bid.len(),
         quotes_ask.len(),
         "quotes_bid.len()",
         "quotes_ask.len()",
-    )?;
+    )
+    .expect(FAILED);
 
     if from_currency == to_currency {
         return Ok(DECIMAL_ONE); // No conversion necessary
@@ -78,21 +79,13 @@ pub fn get_exchange_rate(
         let code_lhs = Ustr::from(pieces[0]);
         let code_rhs = Ustr::from(pieces[1]);
 
-        exchange_rates.entry(code_lhs).or_default();
-        exchange_rates.entry(code_rhs).or_default();
+        let lhs_rates = exchange_rates.entry(code_lhs).or_default();
+        lhs_rates.insert(code_lhs, Decimal::new(1, 0));
+        lhs_rates.insert(code_rhs, *quote);
 
-        exchange_rates
-            .get_mut(&code_lhs)
-            .unwrap()
-            .insert(code_lhs, Decimal::new(1, 0));
-        exchange_rates
-            .get_mut(&code_rhs)
-            .unwrap()
-            .insert(code_rhs, Decimal::new(1, 0));
-        exchange_rates
-            .get_mut(&code_lhs)
-            .unwrap()
-            .insert(code_rhs, *quote);
+        let rhs_rates = exchange_rates.entry(code_rhs).or_default();
+        rhs_rates.insert(code_lhs, Decimal::new(1, 0));
+        rhs_rates.insert(code_rhs, *quote);
     }
 
     // Clone exchange_rates to avoid borrowing conflicts

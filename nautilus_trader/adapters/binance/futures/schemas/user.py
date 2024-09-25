@@ -19,13 +19,13 @@ import msgspec
 
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceExecutionType
+from nautilus_trader.adapters.binance.common.enums import BinanceFuturesPositionSide
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderSide
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderStatus
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderType
 from nautilus_trader.adapters.binance.common.enums import BinanceTimeInForce
-from nautilus_trader.adapters.binance.common.execution import BinanceCommonExecutionClient
+from nautilus_trader.adapters.binance.execution import BinanceCommonExecutionClient
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesEventType
-from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesPositionSide
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesPositionUpdateReason
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesWorkingType
 from nautilus_trader.core.datetime import millis_to_nanos
@@ -57,7 +57,7 @@ from nautilus_trader.model.objects import Quantity
 
 class BinanceFuturesUserMsgData(msgspec.Struct, frozen=True):
     """
-    Inner struct for execution WebSocket messages from `Binance`.
+    Inner struct for execution WebSocket messages from Binance.
     """
 
     e: BinanceFuturesEventType
@@ -65,7 +65,7 @@ class BinanceFuturesUserMsgData(msgspec.Struct, frozen=True):
 
 class BinanceFuturesUserMsgWrapper(msgspec.Struct, frozen=True):
     """
-    Provides a wrapper for execution WebSocket messages from `Binance`.
+    Provides a wrapper for execution WebSocket messages from Binance.
     """
 
     data: BinanceFuturesUserMsgData | None = None
@@ -74,7 +74,7 @@ class BinanceFuturesUserMsgWrapper(msgspec.Struct, frozen=True):
 
 class MarginCallPosition(msgspec.Struct, frozen=True):
     """
-    Inner struct position for `Binance Futures` Margin Call events.
+    Inner struct position for Binance Futures Margin Call events.
     """
 
     s: str  # Symbol
@@ -89,7 +89,7 @@ class MarginCallPosition(msgspec.Struct, frozen=True):
 
 class BinanceFuturesMarginCallMsg(msgspec.Struct, frozen=True):
     """
-    WebSocket message for `Binance Futures` Margin Call events.
+    WebSocket message for Binance Futures Margin Call events.
     """
 
     e: str  # Event Type
@@ -100,7 +100,7 @@ class BinanceFuturesMarginCallMsg(msgspec.Struct, frozen=True):
 
 class BinanceFuturesBalance(msgspec.Struct, frozen=True):
     """
-    Inner struct balance for `Binance Futures` Balance and Position update event.
+    Inner struct balance for Binance Futures Balance and Position update event.
     """
 
     a: str  # Asset
@@ -123,7 +123,7 @@ class BinanceFuturesBalance(msgspec.Struct, frozen=True):
 
 class BinanceFuturesPosition(msgspec.Struct, frozen=True):
     """
-    Inner struct position for `Binance Futures` Balance and Position update event.
+    Inner struct position for Binance Futures Balance and Position update event.
     """
 
     s: str  # Symbol
@@ -138,7 +138,7 @@ class BinanceFuturesPosition(msgspec.Struct, frozen=True):
 
 class BinanceFuturesAccountUpdateData(msgspec.Struct, frozen=True):
     """
-    WebSocket message for `Binance Futures` Balance and Position Update events.
+    WebSocket message for Binance Futures Balance and Position Update events.
     """
 
     m: BinanceFuturesPositionUpdateReason
@@ -151,7 +151,7 @@ class BinanceFuturesAccountUpdateData(msgspec.Struct, frozen=True):
 
 class BinanceFuturesAccountUpdateMsg(msgspec.Struct, frozen=True):
     """
-    WebSocket message for `Binance Futures` Balance and Position Update events.
+    WebSocket message for Binance Futures Balance and Position Update events.
     """
 
     e: str  # Event Type
@@ -173,7 +173,7 @@ class BinanceFuturesAccountUpdateMsg(msgspec.Struct, frozen=True):
 
 class BinanceFuturesAccountUpdateWrapper(msgspec.Struct, frozen=True):
     """
-    WebSocket message wrapper for `Binance Futures` Balance and Position Update events.
+    WebSocket message wrapper for Binance Futures Balance and Position Update events.
     """
 
     stream: str
@@ -182,7 +182,7 @@ class BinanceFuturesAccountUpdateWrapper(msgspec.Struct, frozen=True):
 
 class BinanceFuturesOrderData(msgspec.Struct, kw_only=True, frozen=True):
     """
-    WebSocket message 'inner struct' for `Binance Futures` Order Update events.
+    WebSocket message 'inner struct' for Binance Futures Order Update events.
 
     Client Order ID 'c':
      - starts with "autoclose-": liquidation order/
@@ -279,18 +279,10 @@ class BinanceFuturesOrderData(msgspec.Struct, kw_only=True, frozen=True):
         ts_event = millis_to_nanos(self.T)
         venue_order_id = VenueOrderId(str(self.i))
         instrument_id = exec_client._get_cached_instrument_id(self.s)
-        strategy_id = exec_client._cache.strategy_id_for_order(client_order_id)
 
-        instrument = exec_client._instrument_provider.find(instrument_id=instrument_id)
-        if instrument is None:
-            raise ValueError(f"Cannot handle trade: instrument {instrument_id} not found")
-
-        price_precision = instrument.price_precision
-        size_precision = instrument.size_precision
-
-        order = exec_client._cache.order(client_order_id)
-        if not order:
-            exec_client._log.error(f"Cannot find order {client_order_id!r}")
+        strategy_id = None
+        if client_order_id:
+            strategy_id = exec_client._cache.strategy_id_for_order(client_order_id)
 
         if strategy_id is None:
             report = self.parse_to_order_status_report(
@@ -303,7 +295,21 @@ class BinanceFuturesOrderData(msgspec.Struct, kw_only=True, frozen=True):
                 enum_parser=exec_client._enum_parser,
             )
             exec_client._send_order_status_report(report)
-        elif self.x == BinanceExecutionType.NEW:
+            return
+
+        instrument = exec_client._instrument_provider.find(instrument_id=instrument_id)
+        if instrument is None:
+            raise ValueError(f"Cannot handle trade: instrument {instrument_id} not found")
+
+        price_precision = instrument.price_precision
+        size_precision = instrument.size_precision
+
+        order = exec_client._cache.order(client_order_id)
+        if not order:
+            exec_client._log.error(f"Cannot find order {client_order_id!r}")
+            return
+
+        if self.x == BinanceExecutionType.NEW:
             if order.order_type == OrderType.TRAILING_STOP_MARKET and order.is_open:
                 return  # Already accepted: this is an update
 
@@ -399,7 +405,7 @@ class BinanceFuturesOrderData(msgspec.Struct, kw_only=True, frozen=True):
 
 class BinanceFuturesOrderUpdateMsg(msgspec.Struct, frozen=True):
     """
-    WebSocket message for `Binance Futures` Order Update events.
+    WebSocket message for Binance Futures Order Update events.
     """
 
     e: str  # Event Type
@@ -410,7 +416,7 @@ class BinanceFuturesOrderUpdateMsg(msgspec.Struct, frozen=True):
 
 class BinanceFuturesOrderUpdateWrapper(msgspec.Struct, frozen=True):
     """
-    WebSocket message wrapper for `Binance Futures` Order Update events.
+    WebSocket message wrapper for Binance Futures Order Update events.
     """
 
     stream: str

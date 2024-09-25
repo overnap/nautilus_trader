@@ -37,7 +37,7 @@ from nautilus_trader.model.identifiers import TraderId
 # *** IT IS NOT INTENDED TO BE USED TO TRADE LIVE WITH REAL MONEY. ***
 
 # SPOT/LINEAR
-product_type = BybitProductType.SPOT
+product_type = BybitProductType.LINEAR
 symbol = f"ETHUSDT-{product_type.value.upper()}"
 trade_size = Decimal("0.010")
 
@@ -48,6 +48,9 @@ config_node = TradingNodeConfig(
     exec_engine=LiveExecEngineConfig(
         reconciliation=True,
         reconciliation_lookback_mins=1440,
+        # snapshot_orders=True,
+        # snapshot_positions=True,
+        # snapshot_positions_interval_secs=5.0,
     ),
     # cache=CacheConfig(
     #     database=DatabaseConfig(),
@@ -60,18 +63,15 @@ config_node = TradingNodeConfig(
     #     timestamps_as_iso8601=True,
     #     # types_filter=[QuoteTick],
     #     autotrim_mins=1,
+    #     heartbeat_interval_secs=1,
     # ),
-    # heartbeat_interval=1.0,
-    # snapshot_orders=True,
-    # snapshot_positions=True,
-    # snapshot_positions_interval=5.0,
     data_clients={
         "BYBIT": BybitDataClientConfig(
             api_key=None,  # 'BYBIT_API_KEY' env var
             api_secret=None,  # 'BYBIT_API_SECRET' env var
             base_url_http=None,  # Override with custom endpoint
             instrument_provider=InstrumentProviderConfig(load_all=True),
-            # product_types=[product_type],  # Will load all instruments
+            product_types=[product_type],  # Will load all instruments
             testnet=False,  # If client uses the testnet
         ),
     },
@@ -84,6 +84,8 @@ config_node = TradingNodeConfig(
             instrument_provider=InstrumentProviderConfig(load_all=True),
             product_types=[product_type],
             testnet=False,  # If client uses the testnet
+            max_retries=3,
+            retry_delay=1.0,
         ),
     },
     timeout_connection=20.0,

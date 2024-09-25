@@ -15,6 +15,7 @@
 
 use std::{
     any::Any,
+    cell::RefCell,
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -25,10 +26,11 @@ use std::{
 use nautilus_core::message::Message;
 use nautilus_model::data::Data;
 use ustr::Ustr;
+use uuid::Uuid;
 
 use crate::{
     messages::data::DataResponse,
-    msgbus::{MessageHandler, ShareableMessageHandler},
+    msgbus::{handler::MessageHandler, ShareableMessageHandler},
 };
 
 // Stub message handler which logs the data it receives
@@ -48,7 +50,7 @@ impl MessageHandler for StubMessageHandler {
 
     fn handle_response(&self, _resp: DataResponse) {}
 
-    fn handle_data(&self, _resp: &Data) {}
+    fn handle_data(&self, _data: Data) {}
 
     fn as_any(&self) -> &dyn Any {
         self
@@ -56,9 +58,14 @@ impl MessageHandler for StubMessageHandler {
 }
 
 #[must_use]
-pub fn get_stub_shareable_handler(id: Ustr) -> ShareableMessageHandler {
+#[allow(unused_must_use)] // TODO: Temporary to fix docs build
+pub fn get_stub_shareable_handler(id: Option<Ustr>) -> ShareableMessageHandler {
+    // TODO: This reduces the need to come up with ID strings in tests.
+    // In Python we do something like `hash((self.topic, str(self.handler)))` for the hash
+    // which includes the memory address, just went with a UUID4 here.
+    let unique_id = id.unwrap_or_else(|| Ustr::from(&Uuid::new_v4().to_string()));
     ShareableMessageHandler(Rc::new(StubMessageHandler {
-        id,
+        id: unique_id,
         callback: Arc::new(|m: Message| {
             format!("{m:?}");
         }),
@@ -89,7 +96,7 @@ impl MessageHandler for CallCheckMessageHandler {
 
     fn handle_response(&self, _resp: DataResponse) {}
 
-    fn handle_data(&self, _resp: &Data) {}
+    fn handle_data(&self, _data: Data) {}
 
     fn as_any(&self) -> &dyn Any {
         self
@@ -97,9 +104,83 @@ impl MessageHandler for CallCheckMessageHandler {
 }
 
 #[must_use]
-pub fn get_call_check_shareable_handler(id: Ustr) -> ShareableMessageHandler {
+pub fn get_call_check_shareable_handler(id: Option<Ustr>) -> ShareableMessageHandler {
+    // TODO: This reduces the need to come up with ID strings in tests.
+    // In Python we do something like `hash((self.topic, str(self.handler)))` for the hash
+    // which includes the memory address, just went with a UUID4 here.
+    let unique_id = id.unwrap_or_else(|| Ustr::from(&Uuid::new_v4().to_string()));
     ShareableMessageHandler(Rc::new(CallCheckMessageHandler {
-        id,
+        id: unique_id,
         called: Arc::new(AtomicBool::new(false)),
     }))
+}
+
+#[must_use]
+pub fn check_handler_was_called(call_check_handler: ShareableMessageHandler) -> bool {
+    call_check_handler
+        .0
+        .as_ref()
+        .as_any()
+        .downcast_ref::<CallCheckMessageHandler>()
+        .unwrap()
+        .was_called()
+}
+
+// Handler which saves the messages it receives
+#[derive(Debug, Clone)]
+pub struct MessageSavingHandler<T> {
+    id: Ustr,
+    messages: Rc<RefCell<Vec<T>>>,
+}
+
+impl<T: Clone + 'static> MessageSavingHandler<T> {
+    #[must_use]
+    pub fn get_messages(&self) -> Vec<T> {
+        self.messages.borrow().clone()
+    }
+}
+
+impl<T: Clone + 'static> MessageHandler for MessageSavingHandler<T> {
+    fn id(&self) -> Ustr {
+        self.id
+    }
+
+    fn handle(&self, message: &dyn Any) {
+        let mut messages = self.messages.borrow_mut();
+        match message.downcast_ref::<T>() {
+            Some(m) => messages.push(m.clone()),
+            None => panic!("MessageSavingHandler: message type mismatch {message:?}"),
+        }
+    }
+
+    fn handle_response(&self, _resp: DataResponse) {}
+
+    fn handle_data(&self, _data: Data) {}
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[must_use]
+pub fn get_message_saving_handler<T: Clone + 'static>(id: Option<Ustr>) -> ShareableMessageHandler {
+    // TODO: This reduces the need to come up with ID strings in tests.
+    // In Python we do something like `hash((self.topic, str(self.handler)))` for the hash
+    // which includes the memory address, just went with a UUID4 here.
+    let unique_id = id.unwrap_or_else(|| Ustr::from(&Uuid::new_v4().to_string()));
+    ShareableMessageHandler(Rc::new(MessageSavingHandler::<T> {
+        id: unique_id,
+        messages: Rc::new(RefCell::new(Vec::new())),
+    }))
+}
+
+#[must_use]
+pub fn get_saved_messages<T: Clone + 'static>(handler: ShareableMessageHandler) -> Vec<T> {
+    handler
+        .0
+        .as_ref()
+        .as_any()
+        .downcast_ref::<MessageSavingHandler<T>>()
+        .unwrap()
+        .get_messages()
 }

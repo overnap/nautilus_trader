@@ -209,6 +209,11 @@ class StreamingFeatherWriter:
         PyCondition.not_none(obj, "obj")
 
         cls = obj.__class__
+
+        # Check if an include types filter has been specified
+        if self.include_types is not None and cls not in self.include_types:
+            return
+
         if isinstance(obj, CustomData):
             cls = obj.data_type.type
         elif isinstance(obj, Instrument):
@@ -356,7 +361,13 @@ def generate_signal_class(name: str, value_type: type) -> type:
         {
             "ts_event": pa.uint64(),
             "ts_init": pa.uint64(),
-            "value": {int: pa.int64(), float: pa.float64(), str: pa.string()}[value_type],
+            "value": {
+                int: pa.int64(),
+                float: pa.float64(),
+                str: pa.string(),
+                bool: pa.bool_(),
+                bytes: pa.binary(),
+            }[value_type],
         },
     )
     register_arrow(

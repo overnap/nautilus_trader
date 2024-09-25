@@ -15,7 +15,11 @@
 
 use std::collections::HashMap;
 
-use nautilus_core::{nanos::UnixNanos, python::to_pyruntime_err, uuid::UUID4};
+use nautilus_core::{
+    nanos::UnixNanos,
+    python::{to_pyruntime_err, to_pyvalue_err},
+    uuid::UUID4,
+};
 use pyo3::{
     basic::CompareOp,
     prelude::*,
@@ -72,7 +76,7 @@ impl LimitOrder {
         tags: Option<Vec<String>>,
     ) -> PyResult<Self> {
         let exec_algorithm_params = exec_algorithm_params.map(str_hashmap_to_ustr);
-        Ok(Self::new(
+        Self::new(
             trader_id,
             strategy_id,
             instrument_id,
@@ -99,7 +103,7 @@ impl LimitOrder {
             init_id,
             ts_init.into(),
         )
-        .unwrap())
+        .map_err(to_pyvalue_err)
     }
 
     fn __richcmp__(&self, other: &Self, op: CompareOp, py: Python<'_>) -> Py<PyAny> {
@@ -451,7 +455,7 @@ impl LimitOrder {
             x.and_then(|inner| {
                 let extracted_str = inner.extract::<&str>();
                 match extracted_str {
-                    Ok(item) => item.parse::<OrderListId>().ok(),
+                    Ok(item) => Some(OrderListId::from(item)),
                     Err(_) => None,
                 }
             })
@@ -462,7 +466,7 @@ impl LimitOrder {
                 match extracted_str {
                     Ok(item) => Some(
                         item.iter()
-                            .map(|x| x.parse::<ClientOrderId>().unwrap())
+                            .map(|x| ClientOrderId::from(x.as_str()))
                             .collect(),
                     ),
                     Err(_) => None,
@@ -473,7 +477,7 @@ impl LimitOrder {
             x.and_then(|inner| {
                 let extracted_str = inner.extract::<&str>();
                 match extracted_str {
-                    Ok(item) => item.parse::<ClientOrderId>().ok(),
+                    Ok(item) => Some(ClientOrderId::from(item)),
                     Err(_) => None,
                 }
             })
@@ -482,7 +486,7 @@ impl LimitOrder {
             x.and_then(|inner| {
                 let extracted_str = inner.extract::<&str>();
                 match extracted_str {
-                    Ok(item) => item.parse::<ExecAlgorithmId>().ok(),
+                    Ok(item) => Some(ExecAlgorithmId::from(item)),
                     Err(_) => None,
                 }
             })
@@ -500,7 +504,7 @@ impl LimitOrder {
             x.and_then(|inner| {
                 let extracted_str = inner.extract::<&str>();
                 match extracted_str {
-                    Ok(item) => item.parse::<ClientOrderId>().ok(),
+                    Ok(item) => Some(ClientOrderId::from(item)),
                     Err(_) => None,
                 }
             })

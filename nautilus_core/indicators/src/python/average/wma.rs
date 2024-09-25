@@ -13,7 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use nautilus_core::python::to_pyvalue_err;
+use nautilus_core::{correctness::check_predicate_true, python::to_pyvalue_err};
 use nautilus_model::{
     data::{bar::Bar, quote::QuoteTick, trade::TradeTick},
     enums::PriceType,
@@ -33,7 +33,7 @@ impl WeightedMovingAverage {
         weights: Vec<f64>,
         price_type: Option<PriceType>,
     ) -> PyResult<Self> {
-        Self::new(period, weights, price_type).map_err(to_pyvalue_err)
+        Self::new_checked(period, weights, price_type).map_err(to_pyvalue_err)
     }
 
     fn __repr__(&self) -> String {

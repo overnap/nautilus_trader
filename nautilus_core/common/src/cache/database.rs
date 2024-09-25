@@ -39,9 +39,9 @@ use nautilus_model::{
 use ustr::Ustr;
 
 pub trait CacheDatabaseAdapter {
-    fn close(&mut self) -> anyhow::Result<()>;
+    fn close(&mut self);
 
-    fn flush(&mut self) -> anyhow::Result<()>;
+    fn flush(&mut self);
 
     fn load(&mut self) -> anyhow::Result<HashMap<String, Bytes>>;
 
@@ -98,7 +98,7 @@ pub trait CacheDatabaseAdapter {
 
     fn add_account(&mut self, account: &AccountAny) -> anyhow::Result<()>;
 
-    fn add_order(&mut self, order: &OrderAny) -> anyhow::Result<()>;
+    fn add_order(&mut self, order: &OrderAny, client_id: Option<ClientId>) -> anyhow::Result<()>;
 
     fn add_position(&mut self, position: &Position) -> anyhow::Result<()>;
 

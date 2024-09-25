@@ -17,7 +17,7 @@ use std::hash::{Hash, Hasher};
 
 use nautilus_core::{
     correctness::{
-        check_equal_u8, check_positive_i64, check_valid_string, check_valid_string_optional,
+        check_equal_u8, check_positive_i64, check_valid_string, check_valid_string_optional, FAILED,
     },
     nanos::UnixNanos,
 };
@@ -47,9 +47,9 @@ pub struct OptionsContract {
     pub exchange: Option<Ustr>,
     pub underlying: Ustr,
     pub option_kind: OptionKind,
+    pub strike_price: Price,
     pub activation_ns: UnixNanos,
     pub expiration_ns: UnixNanos,
-    pub strike_price: Price,
     pub currency: Currency,
     pub price_precision: u8,
     pub price_increment: Price,
@@ -68,19 +68,23 @@ pub struct OptionsContract {
 }
 
 impl OptionsContract {
-    /// Creates a new [`OptionsContract`] instance.
+    /// Creates a new [`OptionsContract`] instance with correctness checking.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new_checked(
         id: InstrumentId,
         raw_symbol: Symbol,
         asset_class: AssetClass,
         exchange: Option<Ustr>,
         underlying: Ustr,
         option_kind: OptionKind,
-        activation_ns: UnixNanos,
-        expiration_ns: UnixNanos,
         strike_price: Price,
         currency: Currency,
+        activation_ns: UnixNanos,
+        expiration_ns: UnixNanos,
         price_precision: u8,
         price_increment: Price,
         multiplier: Quantity,
@@ -130,6 +134,59 @@ impl OptionsContract {
             ts_event,
             ts_init,
         })
+    }
+
+    /// Creates a new [`OptionsContract`] instance.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: InstrumentId,
+        raw_symbol: Symbol,
+        asset_class: AssetClass,
+        exchange: Option<Ustr>,
+        underlying: Ustr,
+        option_kind: OptionKind,
+        strike_price: Price,
+        currency: Currency,
+        activation_ns: UnixNanos,
+        expiration_ns: UnixNanos,
+        price_precision: u8,
+        price_increment: Price,
+        multiplier: Quantity,
+        lot_size: Quantity,
+        max_quantity: Option<Quantity>,
+        min_quantity: Option<Quantity>,
+        max_price: Option<Price>,
+        min_price: Option<Price>,
+        margin_init: Option<Decimal>,
+        margin_maint: Option<Decimal>,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self::new_checked(
+            id,
+            raw_symbol,
+            asset_class,
+            exchange,
+            underlying,
+            option_kind,
+            strike_price,
+            currency,
+            activation_ns,
+            expiration_ns,
+            price_precision,
+            price_increment,
+            multiplier,
+            lot_size,
+            max_quantity,
+            min_quantity,
+            max_price,
+            min_price,
+            margin_init,
+            margin_maint,
+            ts_event,
+            ts_init,
+        )
+        .expect(FAILED)
     }
 }
 

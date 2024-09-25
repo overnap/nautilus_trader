@@ -72,7 +72,7 @@ impl StopLimitOrder {
         exec_algorithm_params: Option<HashMap<String, String>>,
         exec_spawn_id: Option<ClientOrderId>,
         tags: Option<Vec<String>>,
-    ) -> PyResult<Self> {
+    ) -> Self {
         let exec_algorithm_params = exec_algorithm_params.map(str_hashmap_to_ustr);
         Self::new(
             trader_id,
@@ -103,7 +103,6 @@ impl StopLimitOrder {
             init_id,
             ts_init.into(),
         )
-        .map_err(to_pyvalue_err)
     }
 
     fn __richcmp__(&self, other: &Self, op: CompareOp, py: Python<'_>) -> Py<PyAny> {
@@ -561,7 +560,7 @@ impl StopLimitOrder {
                 x.and_then(|x| {
                     let extracted = x.extract::<&str>();
                     match extracted {
-                        Ok(item) => Some(item.parse::<OrderListId>().unwrap()),
+                        Ok(item) => Some(OrderListId::from(item)),
                         Err(_) => None,
                     }
                 })
@@ -573,7 +572,7 @@ impl StopLimitOrder {
                 match extracted_str {
                     Ok(item) => Some(
                         item.iter()
-                            .map(|x| x.parse::<ClientOrderId>().unwrap())
+                            .map(|x| ClientOrderId::from(x.as_str()))
                             .collect(),
                     ),
                     Err(_) => None,
@@ -586,7 +585,7 @@ impl StopLimitOrder {
                 x.and_then(|x| {
                     let extracted = x.extract::<&str>();
                     match extracted {
-                        Ok(item) => item.parse::<ClientOrderId>().ok(),
+                        Ok(item) => Some(ClientOrderId::from(item)),
                         Err(_) => None,
                     }
                 })
@@ -598,7 +597,7 @@ impl StopLimitOrder {
                 x.and_then(|x| {
                     let extracted = x.extract::<&str>();
                     match extracted {
-                        Ok(item) => Some(item.parse::<ExecAlgorithmId>().unwrap()),
+                        Ok(item) => Some(ExecAlgorithmId::from(item)),
                         Err(_) => None,
                     }
                 })
@@ -619,7 +618,7 @@ impl StopLimitOrder {
                 x.and_then(|x| {
                     let extracted = x.extract::<&str>();
                     match extracted {
-                        Ok(item) => Some(item.parse::<ClientOrderId>().unwrap()),
+                        Ok(item) => Some(ClientOrderId::from(item)),
                         Err(_) => None,
                     }
                 })
@@ -667,8 +666,7 @@ impl StopLimitOrder {
             tags,
             init_id,
             ts_init.into(),
-        )
-        .unwrap();
+        );
         Ok(stop_limit_order)
     }
 

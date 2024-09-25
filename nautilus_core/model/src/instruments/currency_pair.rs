@@ -16,7 +16,7 @@
 use std::hash::{Hash, Hasher};
 
 use nautilus_core::{
-    correctness::{check_equal_u8, check_positive_i64, check_positive_u64},
+    correctness::{check_equal_u8, check_positive_i64, check_positive_u64, FAILED},
     nanos::UnixNanos,
 };
 use rust_decimal::Decimal;
@@ -62,9 +62,13 @@ pub struct CurrencyPair {
 }
 
 impl CurrencyPair {
-    /// Creates a new [`CurrencyPair`] instance.
+    /// Creates a new [`CurrencyPair`] instance with correctness checking.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new_checked(
         id: InstrumentId,
         raw_symbol: Symbol,
         base_currency: Currency,
@@ -125,6 +129,57 @@ impl CurrencyPair {
             ts_event,
             ts_init,
         })
+    }
+
+    /// Creates a new [`CurrencyPair`] instance.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: InstrumentId,
+        raw_symbol: Symbol,
+        base_currency: Currency,
+        quote_currency: Currency,
+        price_precision: u8,
+        size_precision: u8,
+        price_increment: Price,
+        size_increment: Quantity,
+        taker_fee: Decimal,
+        maker_fee: Decimal,
+        margin_init: Decimal,
+        margin_maint: Decimal,
+        lot_size: Option<Quantity>,
+        max_quantity: Option<Quantity>,
+        min_quantity: Option<Quantity>,
+        max_notional: Option<Money>,
+        min_notional: Option<Money>,
+        max_price: Option<Price>,
+        min_price: Option<Price>,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self::new_checked(
+            id,
+            raw_symbol,
+            base_currency,
+            quote_currency,
+            price_precision,
+            size_precision,
+            price_increment,
+            size_increment,
+            taker_fee,
+            maker_fee,
+            margin_init,
+            margin_maint,
+            lot_size,
+            max_quantity,
+            min_quantity,
+            max_notional,
+            min_notional,
+            max_price,
+            min_price,
+            ts_event,
+            ts_init,
+        )
+        .expect(FAILED)
     }
 }
 
@@ -203,7 +258,7 @@ impl Instrument for CurrencyPair {
 
     fn multiplier(&self) -> Quantity {
         // SAFETY: Unwrap safe as using known values
-        Quantity::new(1.0, 0).unwrap()
+        Quantity::new(1.0, 0)
     }
 
     fn lot_size(&self) -> Option<Quantity> {

@@ -55,7 +55,7 @@ impl CurrencyPair {
         max_price: Option<Price>,
         min_price: Option<Price>,
     ) -> PyResult<Self> {
-        Self::new(
+        Self::new_checked(
             id,
             raw_symbol,
             base_currency,

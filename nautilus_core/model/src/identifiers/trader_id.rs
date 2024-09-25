@@ -17,7 +17,7 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use nautilus_core::correctness::{check_string_contains, check_valid_string};
+use nautilus_core::correctness::{check_string_contains, check_valid_string, FAILED};
 use ustr::Ustr;
 
 /// Represents a valid trader ID.
@@ -41,14 +41,24 @@ impl TraderId {
     /// The reason for the numerical component of the ID is so that order and position IDs
     /// do not collide with those from another node instance.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `value` is not a valid string, or does not contain a hyphen '-' separator.
-    pub fn new(value: &str) -> anyhow::Result<Self> {
+    /// This function returns an error:
+    /// - If `value` is not a valid string, or does not contain a hyphen '-' separator.
+    pub fn new_checked(value: &str) -> anyhow::Result<Self> {
         check_valid_string(value, stringify!(value))?;
         check_string_contains(value, "-", stringify!(value))?;
-
         Ok(Self(Ustr::from(value)))
+    }
+
+    /// Creates a new [`TraderId`] instance.
+    ///
+    /// # Panics
+    ///
+    /// This function panics:
+    /// - If `value` is not a valid string, or does not contain a hyphen '-' separator.
+    pub fn new(value: &str) -> Self {
+        Self::new_checked(value).expect(FAILED)
     }
 
     /// Sets the inner identifier value.
@@ -84,12 +94,6 @@ impl Debug for TraderId {
 impl Display for TraderId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl From<&str> for TraderId {
-    fn from(input: &str) -> Self {
-        Self::new(input).unwrap()
     }
 }
 

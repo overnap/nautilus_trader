@@ -16,7 +16,7 @@
 use std::hash::{Hash, Hasher};
 
 use nautilus_core::{
-    correctness::{check_equal_u8, check_positive_i64, check_valid_string_optional},
+    correctness::{check_equal_u8, check_positive_i64, check_valid_string_optional, FAILED},
     nanos::UnixNanos,
 };
 use rust_decimal::Decimal;
@@ -59,9 +59,13 @@ pub struct Equity {
 }
 
 impl Equity {
-    /// Creates a new [`Equity`] instance.
+    /// Creates a new [`Equity`] instance with correctness checking.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new_checked(
         id: InstrumentId,
         raw_symbol: Symbol,
         isin: Option<Ustr>,
@@ -108,6 +112,49 @@ impl Equity {
             ts_event,
             ts_init,
         })
+    }
+
+    /// Creates a new [`Equity`] instance.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: InstrumentId,
+        raw_symbol: Symbol,
+        isin: Option<Ustr>,
+        currency: Currency,
+        price_precision: u8,
+        price_increment: Price,
+        maker_fee: Option<Decimal>,
+        taker_fee: Option<Decimal>,
+        margin_init: Option<Decimal>,
+        margin_maint: Option<Decimal>,
+        lot_size: Option<Quantity>,
+        max_quantity: Option<Quantity>,
+        min_quantity: Option<Quantity>,
+        max_price: Option<Price>,
+        min_price: Option<Price>,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self::new_checked(
+            id,
+            raw_symbol,
+            isin,
+            currency,
+            price_precision,
+            price_increment,
+            maker_fee,
+            taker_fee,
+            margin_init,
+            margin_maint,
+            lot_size,
+            max_quantity,
+            min_quantity,
+            max_price,
+            min_price,
+            ts_event,
+            ts_init,
+        )
+        .expect(FAILED)
     }
 }
 

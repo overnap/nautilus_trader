@@ -91,13 +91,14 @@ impl Indicator for ArcherMovingAveragesTrends {
 
 impl ArcherMovingAveragesTrends {
     /// Creates a new [`ArcherMovingAveragesTrends`] instance.
+    #[must_use]
     pub fn new(
         fast_period: usize,
         slow_period: usize,
         signal_period: usize,
         ma_type: Option<MovingAverageType>,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             fast_period,
             slow_period,
             signal_period,
@@ -116,7 +117,7 @@ impl ArcherMovingAveragesTrends {
             slow_ma_price: VecDeque::with_capacity(signal_period + 1),
             has_inputs: false,
             initialized: false,
-        })
+        }
     }
 
     pub fn update_raw(&mut self, close: f64) {
@@ -127,27 +128,21 @@ impl ArcherMovingAveragesTrends {
             self.fast_ma_price.push_back(self.fast_ma.value());
             self.slow_ma_price.push_back(self.slow_ma.value());
 
-            self.long_run = self.fast_ma_price.back().unwrap()
-                - self.fast_ma_price.front().unwrap()
-                > 0.0
-                && self.slow_ma_price.back().unwrap() - self.slow_ma_price.front().unwrap() < 0.0;
+            let fast_back = self.fast_ma.value();
+            let slow_back = self.slow_ma.value();
+            // TODO: Reduce unwraps
+            let fast_front = self.fast_ma_price.front().unwrap();
+            let slow_front = self.slow_ma_price.front().unwrap();
 
-            self.long_run = self.fast_ma_price.back().unwrap()
-                - self.fast_ma_price.front().unwrap()
-                > 0.0
-                && self.slow_ma_price.back().unwrap() - self.slow_ma_price.front().unwrap() > 0.0
-                || self.long_run;
+            self.long_run = fast_back - fast_front > 0.0 && slow_back - slow_front < 0.0;
 
-            self.short_run = self.fast_ma_price.back().unwrap()
-                - self.fast_ma_price.front().unwrap()
-                < 0.0
-                && self.slow_ma_price.back().unwrap() - self.slow_ma_price.front().unwrap() > 0.0;
+            self.long_run =
+                fast_back - fast_front > 0.0 && slow_back - slow_front > 0.0 || self.long_run;
 
-            self.short_run = self.fast_ma_price.back().unwrap()
-                - self.fast_ma_price.front().unwrap()
-                < 0.0
-                && self.slow_ma_price.back().unwrap() - self.slow_ma_price.front().unwrap() < 0.0
-                || self.short_run;
+            self.short_run = fast_back - fast_front < 0.0 && slow_back - slow_front > 0.0;
+
+            self.short_run =
+                fast_back - fast_front < 0.0 && slow_back - slow_front < 0.0 || self.short_run;
         }
 
         // Initialization logic

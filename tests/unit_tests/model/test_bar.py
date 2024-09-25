@@ -344,7 +344,11 @@ class TestBarType:
 
     @pytest.mark.parametrize(
         "value",
-        ["", "AUD/USD", "AUD/USD.IDEALPRO-1-MILLISECOND-BID"],
+        [
+            "",
+            "AUD/USD",
+            "AUD/USD.IDEALPRO-1-MILLISECOND-BID",
+        ],
     )
     def test_from_str_given_various_invalid_strings_raises_value_error(self, value):
         # Arrange, Act, Assert
@@ -391,6 +395,14 @@ class TestBarType:
                     InstrumentId(Symbol("ETHUSDT-PERP"), Venue("BINANCE")),
                     BarSpecification(100, BarAggregation.TICK, PriceType.LAST),
                     AggregationSource.INTERNAL,
+                ),
+            ],
+            [
+                "TOTAL-INDEX.TRADINGVIEW-2-HOUR-LAST-EXTERNAL",
+                BarType(
+                    InstrumentId(Symbol("TOTAL-INDEX"), Venue("TRADINGVIEW")),
+                    BarSpecification(2, BarAggregation.HOUR, PriceType.LAST),
+                    AggregationSource.EXTERNAL,
                 ),
             ],
         ],
@@ -707,3 +719,39 @@ class TestBar:
 
         # Assert
         assert unpickled == bar
+
+    def test_bar_type_composite_parse_valid(self):
+        input_str = "BTCUSDT-PERP.BINANCE-2-MINUTE-LAST-INTERNAL@1-MINUTE-EXTERNAL"
+        bar_type = BarType.from_str(input_str)
+        standard = bar_type.standard()
+        composite = bar_type.composite()
+        composite_input = "BTCUSDT-PERP.BINANCE-1-MINUTE-LAST-EXTERNAL"
+
+        assert bar_type.instrument_id == InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
+        assert bar_type.spec == BarSpecification(
+            step=2,
+            aggregation=BarAggregation.MINUTE,
+            price_type=PriceType.LAST,
+        )
+        assert bar_type.aggregation_source == AggregationSource.INTERNAL
+        assert bar_type == BarType.from_str(input_str)
+        assert bar_type.is_composite()
+
+        assert standard.instrument_id == InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
+        assert standard.spec == BarSpecification(
+            step=2,
+            aggregation=BarAggregation.MINUTE,
+            price_type=PriceType.LAST,
+        )
+        assert standard.aggregation_source == AggregationSource.INTERNAL
+        assert standard.is_standard()
+
+        assert composite.instrument_id == InstrumentId.from_str("BTCUSDT-PERP.BINANCE")
+        assert composite.spec == BarSpecification(
+            step=1,
+            aggregation=BarAggregation.MINUTE,
+            price_type=PriceType.LAST,
+        )
+        assert composite.aggregation_source == AggregationSource.EXTERNAL
+        assert composite == BarType.from_str(composite_input)
+        assert composite.is_standard()

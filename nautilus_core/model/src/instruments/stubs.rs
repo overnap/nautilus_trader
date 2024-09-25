@@ -40,14 +40,13 @@ impl Default for SyntheticInstrument {
         let ltc_binance = InstrumentId::from("LTC.BINANCE");
         let formula = "(BTC.BINANCE + LTC.BINANCE) / 2.0".to_string();
         SyntheticInstrument::new(
-            Symbol::new("BTC-LTC").unwrap(),
+            Symbol::new("BTC-LTC"),
             2,
             vec![btc_binance, ltc_binance],
             formula.clone(),
             0.into(),
             0.into(),
         )
-        .unwrap()
     }
 }
 
@@ -82,16 +81,16 @@ pub fn crypto_future_btcusdt(
         dec!(0),
         dec!(0),
         None,
+        None,
         Some(Quantity::from("9000.0")),
         Some(Quantity::from("0.000001")),
         None,
-        Some(Money::new(10.00, Currency::from("USDT")).unwrap()),
+        Some(Money::new(10.00, Currency::from("USDT"))),
         Some(Price::from("1000000.00")),
         Some(Price::from("0.01")),
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -116,16 +115,16 @@ pub fn crypto_perpetual_ethusdt() -> CryptoPerpetual {
         dec!(1.0),
         dec!(0.35),
         None,
+        None,
         Some(Quantity::from("10000.0")),
         Some(Quantity::from("0.001")),
         None,
-        Some(Money::new(10.00, Currency::from("USDT")).unwrap()),
+        Some(Money::new(10.00, Currency::from("USDT"))),
         Some(Price::from("15000.00")),
         Some(Price::from("1.0")),
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 #[fixture]
@@ -148,6 +147,7 @@ pub fn xbtusd_bitmex() -> CryptoPerpetual {
         None,
         None,
         None,
+        None,
         Some(Money::from("10000000 USD")),
         Some(Money::from("1 USD")),
         Some(Price::from("10000000")),
@@ -155,7 +155,6 @@ pub fn xbtusd_bitmex() -> CryptoPerpetual {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 #[fixture]
@@ -180,12 +179,12 @@ pub fn ethusdt_bitmex() -> CryptoPerpetual {
         None,
         None,
         None,
+        None,
         Some(Price::from("10000000")),
         Some(Price::from("0.01")),
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -217,7 +216,6 @@ pub fn currency_pair_btcusdt() -> CurrencyPair {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 #[fixture]
@@ -245,7 +243,6 @@ pub fn currency_pair_ethusdt() -> CurrencyPair {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 #[must_use]
@@ -255,7 +252,7 @@ pub fn default_fx_ccy(symbol: Symbol, venue: Option<Venue>) -> CurrencyPair {
     let base_currency = symbol.as_str().split('/').next().unwrap();
     let quote_currency = symbol.as_str().split('/').last().unwrap();
     let price_precision = if quote_currency == "JPY" { 3 } else { 5 };
-    let price_increment = Price::new(1.0 / 10.0f64, price_precision).unwrap();
+    let price_increment = Price::new(1.0 / 10.0f64, price_precision);
     CurrencyPair::new(
         instrument_id,
         symbol,
@@ -279,7 +276,6 @@ pub fn default_fx_ccy(symbol: Symbol, venue: Option<Venue>) -> CurrencyPair {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 #[fixture]
 pub fn audusd_sim() -> CurrencyPair {
@@ -316,25 +312,36 @@ pub fn equity_aapl() -> Equity {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // FuturesContract
 ////////////////////////////////////////////////////////////////////////////////
 
-#[fixture]
-pub fn futures_contract_es() -> FuturesContract {
-    let activation = Utc.with_ymd_and_hms(2021, 4, 8, 0, 0, 0).unwrap();
-    let expiration = Utc.with_ymd_and_hms(2021, 7, 8, 0, 0, 0).unwrap();
+pub fn futures_contract_es(
+    activation: Option<UnixNanos>,
+    expiration: Option<UnixNanos>,
+) -> FuturesContract {
+    let activation = activation.unwrap_or(UnixNanos::from(
+        Utc.with_ymd_and_hms(2021, 4, 8, 0, 0, 0)
+            .unwrap()
+            .timestamp_nanos_opt()
+            .unwrap() as u64,
+    ));
+    let expiration = expiration.unwrap_or(UnixNanos::from(
+        Utc.with_ymd_and_hms(2021, 7, 8, 0, 0, 0)
+            .unwrap()
+            .timestamp_nanos_opt()
+            .unwrap() as u64,
+    ));
     FuturesContract::new(
         InstrumentId::from("ESZ1.GLBX"),
         Symbol::from("ESZ1"),
         AssetClass::Index,
         Some(Ustr::from("XCME")),
         Ustr::from("ES"),
-        UnixNanos::from(activation.timestamp_nanos_opt().unwrap() as u64),
-        UnixNanos::from(expiration.timestamp_nanos_opt().unwrap() as u64),
+        activation,
+        expiration,
         Currency::USD(),
         2,
         Price::from("0.01"),
@@ -349,7 +356,6 @@ pub fn futures_contract_es() -> FuturesContract {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -383,7 +389,6 @@ pub fn futures_spread_es() -> FuturesSpread {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -401,10 +406,10 @@ pub fn options_contract_appl() -> OptionsContract {
         Some(Ustr::from("GMNI")), // Nasdaq GEMX
         Ustr::from("AAPL"),
         OptionKind::Call,
-        UnixNanos::from(activation.timestamp_nanos_opt().unwrap() as u64),
-        UnixNanos::from(expiration.timestamp_nanos_opt().unwrap() as u64),
         Price::from("149.0"),
         Currency::USD(),
+        UnixNanos::from(activation.timestamp_nanos_opt().unwrap() as u64),
+        UnixNanos::from(expiration.timestamp_nanos_opt().unwrap() as u64),
         2,
         Price::from("0.01"),
         Quantity::from(1),
@@ -418,7 +423,6 @@ pub fn options_contract_appl() -> OptionsContract {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -452,5 +456,4 @@ pub fn options_spread() -> OptionsSpread {
         0.into(),
         0.into(),
     )
-    .unwrap()
 }

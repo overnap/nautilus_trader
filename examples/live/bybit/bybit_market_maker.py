@@ -57,6 +57,9 @@ config_node = TradingNodeConfig(
     exec_engine=LiveExecEngineConfig(
         reconciliation=True,
         reconciliation_lookback_mins=1440,
+        # snapshot_orders=True,
+        # snapshot_positions=True,
+        # snapshot_positions_interval_secs=5.0,
     ),
     cache=CacheConfig(
         # database=DatabaseConfig(),
@@ -72,13 +75,10 @@ config_node = TradingNodeConfig(
     #     use_trader_id=False,
     #     use_instance_id=False,
     #     stream_per_topic=False,
-    #     # types_filter=[QuoteTick],
+    #     types_filter=[QuoteTick],
     #     autotrim_mins=30,
+    #     heartbeat_interval_secs=1,
     # ),
-    # heartbeat_interval=1.0,
-    # snapshot_orders=True,
-    # snapshot_positions=True,
-    # snapshot_positions_interval=5.0,
     data_clients={
         "BYBIT": BybitDataClientConfig(
             api_key=None,  # 'BYBIT_API_KEY' env var
@@ -100,6 +100,8 @@ config_node = TradingNodeConfig(
             product_types=[product_type],
             demo=False,  # If client uses the demo API
             testnet=False,  # If client uses the testnet API
+            max_retries=3,
+            retry_delay=1.0,
         ),
     },
     timeout_connection=20.0,

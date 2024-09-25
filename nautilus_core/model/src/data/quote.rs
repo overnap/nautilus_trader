@@ -24,7 +24,11 @@ use std::{
 
 use derive_builder::Builder;
 use indexmap::IndexMap;
-use nautilus_core::{correctness::check_equal_u8, nanos::UnixNanos, serialization::Serializable};
+use nautilus_core::{
+    correctness::{check_equal_u8, FAILED},
+    nanos::UnixNanos,
+    serialization::Serializable,
+};
 use serde::{Deserialize, Serialize};
 
 use super::GetTsInit;
@@ -63,6 +67,38 @@ pub struct QuoteTick {
 impl QuoteTick {
     /// Creates a new [`QuoteTick`] instance.
     pub fn new(
+        instrument_id: InstrumentId,
+        bid_price: Price,
+        ask_price: Price,
+        bid_size: Quantity,
+        ask_size: Quantity,
+        ts_event: UnixNanos,
+        ts_init: UnixNanos,
+    ) -> Self {
+        Self::new_checked(
+            instrument_id,
+            bid_price,
+            ask_price,
+            bid_size,
+            ask_size,
+            ts_event,
+            ts_init,
+        )
+        .expect(FAILED)
+    }
+
+    /// Creates a new [`QuoteTick`] instance with correctness checking.
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error if:
+    /// - `bid_price.precision` does not equal `ask_price.precision`.
+    /// - `bid_size.precision` does not equal `ask_size.precision`.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
+    pub fn new_checked(
         instrument_id: InstrumentId,
         bid_price: Price,
         ask_price: Price,
@@ -121,6 +157,7 @@ impl QuoteTick {
         metadata
     }
 
+    /// Returns the [`Price`] for this quote depending on the given `price_type`.
     #[must_use]
     pub fn extract_price(&self, price_type: PriceType) -> Price {
         match price_type {
@@ -129,12 +166,12 @@ impl QuoteTick {
             PriceType::Mid => Price::from_raw(
                 (self.bid_price.raw + self.ask_price.raw) / 2,
                 cmp::min(self.bid_price.precision + 1, FIXED_PRECISION),
-            )
-            .unwrap(), // Already a valid `Price`
+            ),
             _ => panic!("Cannot extract with price type {price_type}"),
         }
     }
 
+    /// Returns the [`Quantity`] for this quote depending on the given `price_type`.
     #[must_use]
     pub fn extract_size(&self, price_type: PriceType) -> Quantity {
         match price_type {
@@ -143,8 +180,7 @@ impl QuoteTick {
             PriceType::Mid => Quantity::from_raw(
                 (self.bid_size.raw + self.ask_size.raw) / 2,
                 cmp::min(self.bid_size.precision + 1, FIXED_PRECISION),
-            )
-            .unwrap(), // Already a valid `Quantity`
+            ),
             _ => panic!("Cannot extract with price type {price_type}"),
         }
     }

@@ -47,14 +47,14 @@ pub struct BaseAccount {
 
 impl BaseAccount {
     /// Creates a new [`BaseAccount`] instance.
-    pub fn new(event: AccountState, calculate_account_state: bool) -> anyhow::Result<Self> {
+    pub fn new(event: AccountState, calculate_account_state: bool) -> Self {
         let mut balances_starting: HashMap<Currency, Money> = HashMap::new();
         let mut balances: HashMap<Currency, AccountBalance> = HashMap::new();
         event.balances.iter().for_each(|balance| {
             balances_starting.insert(balance.currency, balance.total);
             balances.insert(balance.currency, *balance);
         });
-        Ok(Self {
+        Self {
             id: event.account_id,
             account_type: event.account_type,
             base_currency: event.base_currency,
@@ -63,7 +63,7 @@ impl BaseAccount {
             commissions: HashMap::new(),
             balances,
             balances_starting,
-        })
+        }
     }
 
     #[must_use]
@@ -165,11 +165,11 @@ impl BaseAccount {
 
         // Handle inverse
         if instrument.is_inverse() && !use_quote_for_inverse.unwrap_or(false) {
-            Ok(Money::new(locked, base_currency).unwrap())
+            Ok(Money::new(locked, base_currency))
         } else if side == OrderSide::Buy {
-            Ok(Money::new(locked, quote_currency).unwrap())
+            Ok(Money::new(locked, quote_currency))
         } else if side == OrderSide::Sell {
-            Ok(Money::new(locked, base_currency).unwrap())
+            Ok(Money::new(locked, base_currency))
         } else {
             panic!("Invalid `OrderSide` in `base_calculate_balance_locked`")
         }
@@ -193,23 +193,23 @@ impl BaseAccount {
             if let (Some(base_currency_value), None) = (base_currency, self.base_currency) {
                 pnls.insert(
                     base_currency_value,
-                    Money::new(fill_qty, base_currency_value).unwrap(),
+                    Money::new(fill_qty, base_currency_value),
                 );
             }
             pnls.insert(
                 quote_currency,
-                Money::new(-(fill_qty * fill_px), quote_currency).unwrap(),
+                Money::new(-(fill_qty * fill_px), quote_currency),
             );
         } else if fill.order_side == OrderSide::Sell {
             if let (Some(base_currency_value), None) = (base_currency, self.base_currency) {
                 pnls.insert(
                     base_currency_value,
-                    Money::new(-fill_qty, base_currency_value).unwrap(),
+                    Money::new(-fill_qty, base_currency_value),
                 );
             }
             pnls.insert(
                 quote_currency,
-                Money::new(fill_qty * fill_px, quote_currency).unwrap(),
+                Money::new(fill_qty * fill_px, quote_currency),
             );
         } else {
             panic!("Invalid `OrderSide` in base_calculate_pnls")
@@ -240,9 +240,9 @@ impl BaseAccount {
             panic!("Invalid `LiquiditySide` {liquidity_side}")
         };
         if instrument.is_inverse() && !use_quote_for_inverse.unwrap_or(false) {
-            Ok(Money::new(commission, instrument.base_currency().unwrap()).unwrap())
+            Ok(Money::new(commission, instrument.base_currency().unwrap()))
         } else {
-            Ok(Money::new(commission, instrument.quote_currency()).unwrap())
+            Ok(Money::new(commission, instrument.quote_currency()))
         }
     }
 }

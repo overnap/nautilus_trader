@@ -25,13 +25,29 @@ use nautilus_core::uuid::UUID4;
 use nautilus_model::identifiers::TraderId;
 use redis::*;
 use semver::Version;
-use tracing::{debug, info};
 
 const REDIS_MIN_VERSION: &str = "6.2.0";
 const REDIS_DELIMITER: char = ':';
 const REDIS_XTRIM: &str = "XTRIM";
 const REDIS_MINID: &str = "MINID";
 const REDIS_FLUSHDB: &str = "FLUSHDB";
+
+async fn await_handle(handle: Option<tokio::task::JoinHandle<()>>, task_name: &str) {
+    if let Some(handle) = handle {
+        tracing::debug!("Awaiting task '{task_name}'");
+        let timeout = Duration::from_secs(2);
+        match tokio::time::timeout(timeout, handle).await {
+            Ok(result) => {
+                if let Err(e) = result {
+                    log::error!("Error awaiting task '{task_name}': {e:?}");
+                }
+            }
+            Err(_) => {
+                log::error!("Timeout {timeout:?} awaiting task '{task_name}'");
+            }
+        }
+    }
+}
 
 /// Parse a Redis connection url from the given database config.
 pub fn get_redis_url(config: DatabaseConfig) -> (String, String) {
@@ -83,9 +99,9 @@ pub fn create_redis_connection(
     con_name: &str,
     config: DatabaseConfig,
 ) -> anyhow::Result<redis::Connection> {
-    debug!("Creating {con_name} redis connection");
+    tracing::debug!("Creating {con_name} redis connection");
     let (redis_url, redacted_url) = get_redis_url(config.clone());
-    debug!("Connecting to {redacted_url}");
+    tracing::debug!("Connecting to {redacted_url}");
     let timeout = Duration::from_secs(config.timeout as u64);
     let client = redis::Client::open(redis_url)?;
     let mut con = client.get_connection_with_timeout(timeout)?;
@@ -96,7 +112,7 @@ pub fn create_redis_connection(
     let min_version = Version::parse(REDIS_MIN_VERSION)?;
 
     if version >= min_version {
-        info!(con_msg);
+        tracing::info!(con_msg);
     } else {
         // TODO: Using `log` error here so that the message is displayed regardless of whether
         // the logging config has pyo3 enabled. Later we can standardize this to `tracing`.

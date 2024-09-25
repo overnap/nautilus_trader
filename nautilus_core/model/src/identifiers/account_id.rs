@@ -20,7 +20,7 @@ use std::{
     hash::Hash,
 };
 
-use nautilus_core::correctness::{check_string_contains, check_valid_string};
+use nautilus_core::correctness::{check_string_contains, check_valid_string, FAILED};
 use ustr::Ustr;
 
 use super::Venue;
@@ -35,21 +35,36 @@ use super::Venue;
 pub struct AccountId(Ustr);
 
 impl AccountId {
-    /// Creates a new [`AccountId`] instance.
+    /// Creates a new [`AccountId`] instance with correctness checking.
     ///
     /// Must be correctly formatted with two valid strings either side of a hyphen '-'.
+    ///
     /// It is expected an account ID is the name of the issuer with an account number
     /// separated by a hyphen.
     ///
-    /// Example: "IB-D02851908".
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `value` is not a valid string, or does not contain a hyphen '-' separator.
-    pub fn new(value: &str) -> anyhow::Result<Self> {
+    /// This function returns an error:
+    /// - If `value` is not a valid string.
+    /// - If `value` length is greater than 36.
+    ///
+    /// # Notes
+    ///
+    /// PyO3 requires a `Result` type for proper error handling and stacktrace printing in Python.
+    pub fn new_checked(value: &str) -> anyhow::Result<Self> {
         check_valid_string(value, stringify!(value))?;
         check_string_contains(value, "-", stringify!(value))?;
-
         Ok(Self(Ustr::from(value)))
+    }
+
+    /// Creates a new [`AccountId`] instance.
+    ///
+    /// # Panics
+    ///
+    /// This function panics:
+    /// - If `value` is not a valid string, or value length is greater than 36.
+    pub fn new(value: &str) -> Self {
+        Self::new_checked(value).expect(FAILED)
     }
 
     /// Sets the inner identifier value.
@@ -96,12 +111,6 @@ impl Display for AccountId {
     }
 }
 
-impl From<&str> for AccountId {
-    fn from(input: &str) -> Self {
-        Self::new(input).unwrap()
-    }
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // Tests
 ////////////////////////////////////////////////////////////////////////////////
@@ -113,23 +122,21 @@ mod tests {
     use crate::identifiers::stubs::*;
 
     #[rstest]
+    #[should_panic]
     fn test_account_id_new_invalid_string() {
-        let s = "";
-        let result = AccountId::new(s);
-        assert!(result.is_err());
+        AccountId::new("");
     }
 
     #[rstest]
+    #[should_panic]
     fn test_account_id_new_missing_hyphen() {
-        let s = "123456789";
-        let result = AccountId::new(s);
-        assert!(result.is_err());
+        AccountId::new("123456789");
     }
 
     #[rstest]
     fn test_account_id_fmt() {
         let s = "IB-U123456789";
-        let account_id = AccountId::new(s).unwrap();
+        let account_id = AccountId::new(s);
         let formatted = format!("{account_id}");
         assert_eq!(formatted, s);
     }
@@ -141,7 +148,7 @@ mod tests {
 
     #[rstest]
     fn test_get_issuer(account_ib: AccountId) {
-        assert_eq!(account_ib.get_issuer(), Venue::new("IB").unwrap());
+        assert_eq!(account_ib.get_issuer(), Venue::new("IB"));
     }
 
     #[rstest]

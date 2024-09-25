@@ -13,7 +13,6 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-
 import msgspec
 
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
@@ -82,7 +81,7 @@ class BinanceFuturesCommissionRateHttp(BinanceHttpEndpoint):
 
 class BinanceFuturesWalletHttpAPI:
     """
-    Provides access to the `Binance Futures` Wallet HTTP REST API.
+    Provides access to the Binance Futures Wallet HTTP REST API.
 
     Parameters
     ----------

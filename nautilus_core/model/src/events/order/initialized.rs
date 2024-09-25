@@ -91,7 +91,7 @@ impl Default for OrderInitialized {
             client_order_id: ClientOrderId::default(),
             order_side: OrderSide::Buy,
             order_type: OrderType::Market,
-            quantity: Quantity::new(100_000.0, 0).unwrap(),
+            quantity: Quantity::new(100_000.0, 0),
             price: Default::default(),
             trigger_price: Default::default(),
             trigger_type: Default::default(),
@@ -159,8 +159,8 @@ impl OrderInitialized {
         exec_algorithm_params: Option<HashMap<Ustr, Ustr>>,
         exec_spawn_id: Option<ClientOrderId>,
         tags: Option<Vec<Ustr>>,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             trader_id,
             strategy_id,
             instrument_id,
@@ -194,7 +194,7 @@ impl OrderInitialized {
             exec_algorithm_params,
             exec_spawn_id,
             tags,
-        })
+        }
     }
 }
 

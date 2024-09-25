@@ -104,12 +104,25 @@ jobs:
       #     make install-talib
       #     poetry run pip install setuptools numpy==1.26.4 ta-lib
 
-      - name: Setup cached pre-commit
+      - name: Set up cached pre-commit
         id: cached-pre-commit
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
           key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Set up cached cargo
+        id: cached-cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Set poetry cache-dir
         run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
@@ -139,7 +152,13 @@ jobs:
 
       - name: Run nautilus_core cargo tests (Linux)
         run: |
-          cargo install cargo-nextest
+          if ! command -v cargo-nextest &> /dev/null
+          then
+              echo "cargo-nextest not found, installing..."
+              cargo install cargo-nextest
+          else
+              echo "cargo-nextest is already installed"
+          fi
           make cargo-test
 
       - name: Run tests (Linux)
@@ -148,7 +167,6 @@ jobs:
           make test-examples
 
   build-windows:
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/nightly'
     strategy:
       fail-fast: false
       matrix:
@@ -167,6 +185,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Free disk space (Windows)
+        run: |
+          rm -rf "/c/Program Files/dotnet"
+          rm -rf "/c/Program Files (x86)/Microsoft Visual Studio/2019"
+
+      - name: Install nasm dependency (Windows)
+        run: |
+          choco install nasm
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
 
       - name: Get Rust version from rust-toolchain.toml
         id: rust-version
@@ -205,12 +233,25 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
 
-      - name: Setup cached pre-commit
+      - name: Set up cached pre-commit
         id: cached-pre-commit
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
           key: ${{ runner.os }}-${{ matrix.python-version }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Set up cached cargo
+        id: cached-cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Set poetry cache-dir
         run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
@@ -236,7 +277,6 @@ jobs:
           PARALLEL_BUILD: false
 
   build-macos:
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/nightly'
     strategy:
       fail-fast: false
       matrix:
@@ -251,11 +291,16 @@ jobs:
     env:
       BUILD_MODE: debug
       RUST_BACKTRACE: 1
-      # CARGO_BUILD_TARGET: aarch64-apple-darwin
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Free disk space (macOS)
+        run: |
+          sudo rm -rf ~/Library/Caches/*
+          sudo rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          sudo rm -rf /Library/Developer/CommandLineTools
 
       - name: Get Rust version from rust-toolchain.toml
         id: rust-version
@@ -272,7 +317,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           override: true
           components: rustfmt, clippy
-          # target: aarch64-apple-darwin
+          target: aarch64-apple-darwin
 
       - name: Set up Python environment
         uses: actions/setup-python@v5
@@ -297,12 +342,25 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
 
-      - name: Setup cached pre-commit
+      - name: Set up cached pre-commit
         id: cached-pre-commit
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
           key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Set up cached cargo
+        id: cached-cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Set poetry cache-dir
         run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
@@ -321,7 +379,13 @@ jobs:
 
       - name: Run nautilus_core cargo tests (macOS)
         run: |
-          cargo install cargo-nextest
+          if ! command -v cargo-nextest &> /dev/null
+          then
+              echo "cargo-nextest not found, installing..."
+              cargo install cargo-nextest
+          else
+              echo "cargo-nextest is already installed"
+          fi
           make cargo-test
 
       - name: Run tests (macOS)

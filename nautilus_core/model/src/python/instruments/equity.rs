@@ -52,7 +52,7 @@ impl Equity {
         max_price: Option<Price>,
         min_price: Option<Price>,
     ) -> PyResult<Self> {
-        Self::new(
+        Self::new_checked(
             id,
             raw_symbol,
             isin.map(|x| Ustr::from(&x)),

@@ -94,11 +94,67 @@ pub extern "C" fn bar_type_new(
 ) -> BarType {
     let aggregation_source = AggregationSource::from_repr(aggregation_source as usize)
         .expect("Error converting enum from integer");
-    BarType {
+
+    BarType::Standard {
         instrument_id,
         spec,
         aggregation_source,
     }
+}
+
+#[no_mangle]
+pub extern "C" fn bar_type_new_composite(
+    instrument_id: InstrumentId,
+    spec: BarSpecification,
+    aggregation_source: AggregationSource,
+
+    composite_step: usize,
+    composite_aggregation: BarAggregation,
+    composite_aggregation_source: AggregationSource,
+) -> BarType {
+    BarType::new_composite(
+        instrument_id,
+        spec,
+        aggregation_source,
+        composite_step,
+        composite_aggregation,
+        composite_aggregation_source,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn bar_type_is_standard(bar_type: &BarType) -> u8 {
+    bar_type.is_standard() as u8
+}
+
+#[no_mangle]
+pub extern "C" fn bar_type_is_composite(bar_type: &BarType) -> u8 {
+    bar_type.is_composite() as u8
+}
+
+#[no_mangle]
+pub extern "C" fn bar_type_standard(bar_type: &BarType) -> BarType {
+    bar_type.standard()
+}
+
+#[no_mangle]
+pub extern "C" fn bar_type_composite(bar_type: &BarType) -> BarType {
+    bar_type.composite()
+}
+
+#[no_mangle]
+pub extern "C" fn bar_type_instrument_id(bar_type: &BarType) -> InstrumentId {
+    bar_type.instrument_id()
+}
+
+#[no_mangle]
+pub extern "C" fn bar_type_spec(bar_type: &BarType) -> BarSpecification {
+    bar_type.spec()
+}
+
+#[no_mangle]
+pub extern "C" fn bar_type_aggregation_source(bar_type: &BarType) -> AggregationSource {
+    bar_type.aggregation_source()
 }
 
 /// Returns any [`BarType`] parsing error from the provided C string pointer.
@@ -200,11 +256,11 @@ pub extern "C" fn bar_new_from_raw(
 ) -> Bar {
     Bar {
         bar_type,
-        open: Price::from_raw(open, price_prec).unwrap(),
-        high: Price::from_raw(high, price_prec).unwrap(),
-        low: Price::from_raw(low, price_prec).unwrap(),
-        close: Price::from_raw(close, price_prec).unwrap(),
-        volume: Quantity::from_raw(volume, size_prec).unwrap(),
+        open: Price::from_raw(open, price_prec),
+        high: Price::from_raw(high, price_prec),
+        low: Price::from_raw(low, price_prec),
+        close: Price::from_raw(close, price_prec),
+        volume: Quantity::from_raw(volume, size_prec),
         ts_event,
         ts_init,
     }

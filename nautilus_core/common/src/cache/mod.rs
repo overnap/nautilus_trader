@@ -28,9 +28,8 @@ use std::{
 
 use bytes::Bytes;
 use database::CacheDatabaseAdapter;
-use log::{debug, error, info, warn};
 use nautilus_core::correctness::{
-    check_key_not_in_map, check_predicate_false, check_slice_not_empty, check_valid_string,
+    check_key_not_in_map, check_predicate_false, check_slice_not_empty, check_valid_string, FAILED,
 };
 use nautilus_model::{
     accounts::any::AccountAny,
@@ -56,32 +55,30 @@ use ustr::Ustr;
 use crate::{enums::SerializationEncoding, msgbus::database::DatabaseConfig};
 
 /// Configuration for `Cache` instances.
-///
-/// # Parameters
-///
-/// - `database`: The configuration for the cache backing database.
-/// - `encoding`: The encoding for database operations, controls the type of serializer used. Options are `"msgpack"` and `"json"`. Default is `"msgpack"`.
-/// - `timestamps_as_iso8601`: If timestamps should be persisted as ISO 8601 strings. If `false`, they will be persisted as UNIX nanoseconds. Default is `false`.
-/// - `buffer_interval_ms`: The buffer interval (milliseconds) between pipelined/batched transactions. The recommended range is [10, 1000] milliseconds, with a good compromise being 100 milliseconds.
-/// - `use_trader_prefix`: If a 'trader-' prefix is used for keys. Default is `true`.
-/// - `use_instance_id`: If the trader's instance ID is used for keys. Default is `false`.
-/// - `flush_on_start`: If the database should be flushed on start. Default is `false`.
-/// - `drop_instruments_on_reset`: If instrument data should be dropped from the cache's memory on reset. Default is `true`.
-/// - `tick_capacity`: The maximum length for internal tick deques. Default is `10_000`.
-/// - `bar_capacity`: The maximum length for internal bar deques. Default is `10_000`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CacheConfig {
+    /// The configuration for the cache backing database.
     pub database: Option<DatabaseConfig>,
+    /// The encoding for database operations, controls the type of serializer used.
     pub encoding: SerializationEncoding,
+    /// If timestamps should be persisted as ISO 8601 strings.
     pub timestamps_as_iso8601: bool,
+    /// The buffer interval (milliseconds) between pipelined/batched transactions.
     pub buffer_interval_ms: Option<usize>,
+    /// If a 'trader-' prefix is used for keys.
     pub use_trader_prefix: bool,
+    /// If the trader's instance ID is used for keys.
     pub use_instance_id: bool,
+    /// If the database should be flushed on start.
     pub flush_on_start: bool,
+    /// If instrument data should be dropped from the cache's memory on reset.
     pub drop_instruments_on_reset: bool,
+    /// The maximum length for internal tick deques.
     pub tick_capacity: usize,
+    /// The maximum length for internal bar deques.
     pub bar_capacity: usize,
+    /// If market data should be persisted to disk.
     pub save_market_data: bool,
 }
 
@@ -222,17 +219,24 @@ pub struct Cache {
     position_snapshots: HashMap<PositionId, Bytes>,
 }
 
+// SAFETY: Cache is not meant to be passed between threads
+unsafe impl Send for Cache {}
+unsafe impl Sync for Cache {}
+
 impl Default for Cache {
     /// Creates a new default [`Cache`] instance.
     fn default() -> Self {
-        Self::new(CacheConfig::default(), None)
+        Self::new(Some(CacheConfig::default()), None)
     }
 }
 
 impl Cache {
     /// Creates a new [`Cache`] instance.
     #[must_use]
-    pub fn new(config: CacheConfig, database: Option<Box<dyn CacheDatabaseAdapter>>) -> Self {
+    pub fn new(
+        config: Option<CacheConfig>,
+        database: Option<Box<dyn CacheDatabaseAdapter>>,
+    ) -> Self {
         let index = CacheIndex {
             venue_account: HashMap::new(),
             venue_orders: HashMap::new(),
@@ -265,7 +269,7 @@ impl Cache {
         };
 
         Self {
-            config,
+            config: config.unwrap_or_default(),
             index,
             database,
             general: HashMap::new(),
@@ -284,6 +288,12 @@ impl Cache {
         }
     }
 
+    /// Returns the cache instances memory address.
+    #[must_use]
+    pub fn memory_address(&self) -> String {
+        format!("{:?}", std::ptr::from_ref(self))
+    }
+
     // -- COMMANDS --------------------------------------------------------------------------------
 
     /// Clears the current general cache and loads the general objects from the cache database.
@@ -293,7 +303,7 @@ impl Cache {
             None => HashMap::new(),
         };
 
-        info!(
+        log::info!(
             "Cached {} general object(s) from database",
             self.general.len()
         );
@@ -307,7 +317,7 @@ impl Cache {
             None => HashMap::new(),
         };
 
-        info!("Cached {} currencies from database", self.general.len());
+        log::info!("Cached {} currencies from database", self.general.len());
         Ok(())
     }
 
@@ -318,7 +328,7 @@ impl Cache {
             None => HashMap::new(),
         };
 
-        info!("Cached {} instruments from database", self.general.len());
+        log::info!("Cached {} instruments from database", self.general.len());
         Ok(())
     }
 
@@ -330,7 +340,7 @@ impl Cache {
             None => HashMap::new(),
         };
 
-        info!(
+        log::info!(
             "Cached {} synthetic instruments from database",
             self.general.len()
         );
@@ -344,7 +354,7 @@ impl Cache {
             None => HashMap::new(),
         };
 
-        info!(
+        log::info!(
             "Cached {} synthetic instruments from database",
             self.general.len()
         );
@@ -358,7 +368,7 @@ impl Cache {
             None => HashMap::new(),
         };
 
-        info!("Cached {} orders from database", self.general.len());
+        log::info!("Cached {} orders from database", self.general.len());
         Ok(())
     }
 
@@ -369,14 +379,14 @@ impl Cache {
             None => HashMap::new(),
         };
 
-        info!("Cached {} positions from database", self.general.len());
+        log::info!("Cached {} positions from database", self.general.len());
         Ok(())
     }
 
     /// Clears the current cache index and re-build.
     pub fn build_index(&mut self) {
         self.index.clear();
-        debug!("Building index");
+        log::debug!("Building index");
 
         // Index accounts
         for account_id in self.accounts.keys() {
@@ -555,7 +565,7 @@ impl Cache {
             .expect("Time went backwards")
             .as_micros();
 
-        info!("Checking data integrity");
+        log::info!("Checking data integrity");
 
         // Check object caches
         for account_id in self.accounts.keys() {
@@ -564,9 +574,10 @@ impl Cache {
                 .venue_account
                 .contains_key(&account_id.get_issuer())
             {
-                error!(
+                log::error!(
                     "{} in accounts: {} not found in `self.index.venue_account`",
-                    failure, account_id
+                    failure,
+                    account_id
                 );
                 error_count += 1;
             }
@@ -574,37 +585,42 @@ impl Cache {
 
         for (client_order_id, order) in &self.orders {
             if !self.index.order_strategy.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in orders: {} not found in `self.index.order_strategy`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
             if !self.index.orders.contains(client_order_id) {
-                error!(
+                log::error!(
                     "{} in orders: {} not found in `self.index.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
             if order.is_inflight() && !self.index.orders_inflight.contains(client_order_id) {
-                error!(
+                log::error!(
                     "{} in orders: {} not found in `self.index.orders_inflight`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
             if order.is_open() && !self.index.orders_open.contains(client_order_id) {
-                error!(
+                log::error!(
                     "{} in orders: {} not found in `self.index.orders_open`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
             if order.is_closed() && !self.index.orders_closed.contains(client_order_id) {
-                error!(
+                log::error!(
                     "{} in orders: {} not found in `self.index.orders_closed`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -614,18 +630,20 @@ impl Cache {
                     .exec_algorithm_orders
                     .contains_key(&exec_algorithm_id)
                 {
-                    error!(
+                    log::error!(
                         "{} in orders: {} not found in `self.index.exec_algorithm_orders`",
-                        failure, exec_algorithm_id
+                        failure,
+                        exec_algorithm_id
                     );
                     error_count += 1;
                 }
                 if order.exec_spawn_id().is_none()
                     && !self.index.exec_spawn_orders.contains_key(client_order_id)
                 {
-                    error!(
+                    log::error!(
                         "{} in orders: {} not found in `self.index.exec_spawn_orders`",
-                        failure, exec_algorithm_id
+                        failure,
+                        exec_algorithm_id
                     );
                     error_count += 1;
                 }
@@ -634,37 +652,42 @@ impl Cache {
 
         for (position_id, position) in &self.positions {
             if !self.index.position_strategy.contains_key(position_id) {
-                error!(
+                log::error!(
                     "{} in positions: {} not found in `self.index.position_strategy`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
             if !self.index.position_orders.contains_key(position_id) {
-                error!(
+                log::error!(
                     "{} in positions: {} not found in `self.index.position_orders`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
             if !self.index.positions.contains(position_id) {
-                error!(
+                log::error!(
                     "{} in positions: {} not found in `self.index.positions`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
             if position.is_open() && !self.index.positions_open.contains(position_id) {
-                error!(
+                log::error!(
                     "{} in positions: {} not found in `self.index.positions_open`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
             if position.is_closed() && !self.index.positions_closed.contains(position_id) {
-                error!(
+                log::error!(
                     "{} in positions: {} not found in `self.index.positions_closed`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
@@ -673,9 +696,10 @@ impl Cache {
         // Check indexes
         for account_id in self.index.venue_account.values() {
             if !self.accounts.contains_key(account_id) {
-                error!(
+                log::error!(
                     "{} in `index.venue_account`: {} not found in `self.accounts`",
-                    failure, account_id
+                    failure,
+                    account_id
                 );
                 error_count += 1;
             }
@@ -683,9 +707,10 @@ impl Cache {
 
         for client_order_id in self.index.venue_order_ids.values() {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.venue_order_ids`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -693,9 +718,10 @@ impl Cache {
 
         for client_order_id in self.index.client_order_ids.keys() {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.client_order_ids`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -703,9 +729,10 @@ impl Cache {
 
         for client_order_id in self.index.order_position.keys() {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.order_position`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -714,9 +741,10 @@ impl Cache {
         // Check indexes
         for client_order_id in self.index.order_strategy.keys() {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.order_strategy`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -724,9 +752,10 @@ impl Cache {
 
         for position_id in self.index.position_strategy.keys() {
             if !self.positions.contains_key(position_id) {
-                error!(
+                log::error!(
                     "{} in `index.position_strategy`: {} not found in `self.positions`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
@@ -734,9 +763,10 @@ impl Cache {
 
         for position_id in self.index.position_orders.keys() {
             if !self.positions.contains_key(position_id) {
-                error!(
+                log::error!(
                     "{} in `index.position_orders`: {} not found in `self.positions`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
@@ -745,9 +775,10 @@ impl Cache {
         for (instrument_id, client_order_ids) in &self.index.instrument_orders {
             for client_order_id in client_order_ids {
                 if !self.orders.contains_key(client_order_id) {
-                    error!(
+                    log::error!(
                         "{} in `index.instrument_orders`: {} not found in `self.orders`",
-                        failure, instrument_id
+                        failure,
+                        instrument_id
                     );
                     error_count += 1;
                 }
@@ -756,9 +787,10 @@ impl Cache {
 
         for instrument_id in self.index.instrument_positions.keys() {
             if !self.index.instrument_orders.contains_key(instrument_id) {
-                error!(
+                log::error!(
                     "{} in `index.instrument_positions`: {} not found in `index.instrument_orders`",
-                    failure, instrument_id
+                    failure,
+                    instrument_id
                 );
                 error_count += 1;
             }
@@ -767,9 +799,10 @@ impl Cache {
         for client_order_ids in self.index.strategy_orders.values() {
             for client_order_id in client_order_ids {
                 if !self.orders.contains_key(client_order_id) {
-                    error!(
+                    log::error!(
                         "{} in `index.strategy_orders`: {} not found in `self.orders`",
-                        failure, client_order_id
+                        failure,
+                        client_order_id
                     );
                     error_count += 1;
                 }
@@ -779,9 +812,10 @@ impl Cache {
         for position_ids in self.index.strategy_positions.values() {
             for position_id in position_ids {
                 if !self.positions.contains_key(position_id) {
-                    error!(
+                    log::error!(
                         "{} in `index.strategy_positions`: {} not found in `self.positions`",
-                        failure, position_id
+                        failure,
+                        position_id
                     );
                     error_count += 1;
                 }
@@ -790,9 +824,10 @@ impl Cache {
 
         for client_order_id in &self.index.orders {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.orders`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -800,9 +835,10 @@ impl Cache {
 
         for client_order_id in &self.index.orders_emulated {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.orders_emulated`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -810,9 +846,10 @@ impl Cache {
 
         for client_order_id in &self.index.orders_inflight {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.orders_inflight`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -820,9 +857,10 @@ impl Cache {
 
         for client_order_id in &self.index.orders_open {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.orders_open`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -830,9 +868,10 @@ impl Cache {
 
         for client_order_id in &self.index.orders_closed {
             if !self.orders.contains_key(client_order_id) {
-                error!(
+                log::error!(
                     "{} in `index.orders_closed`: {} not found in `self.orders`",
-                    failure, client_order_id
+                    failure,
+                    client_order_id
                 );
                 error_count += 1;
             }
@@ -840,9 +879,10 @@ impl Cache {
 
         for position_id in &self.index.positions {
             if !self.positions.contains_key(position_id) {
-                error!(
+                log::error!(
                     "{} in `index.positions`: {} not found in `self.positions`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
@@ -850,9 +890,10 @@ impl Cache {
 
         for position_id in &self.index.positions_open {
             if !self.positions.contains_key(position_id) {
-                error!(
+                log::error!(
                     "{} in `index.positions_open`: {} not found in `self.positions`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
@@ -860,9 +901,10 @@ impl Cache {
 
         for position_id in &self.index.positions_closed {
             if !self.positions.contains_key(position_id) {
-                error!(
+                log::error!(
                     "{} in `index.positions_closed`: {} not found in `self.positions`",
-                    failure, position_id
+                    failure,
+                    position_id
                 );
                 error_count += 1;
             }
@@ -870,9 +912,10 @@ impl Cache {
 
         for strategy_id in &self.index.strategies {
             if !self.index.strategy_orders.contains_key(strategy_id) {
-                error!(
+                log::error!(
                     "{} in `index.strategies`: {} not found in `index.strategy_orders`",
-                    failure, strategy_id
+                    failure,
+                    strategy_id
                 );
                 error_count += 1;
             }
@@ -884,9 +927,10 @@ impl Cache {
                 .exec_algorithm_orders
                 .contains_key(exec_algorithm_id)
             {
-                error!(
+                log::error!(
                     "{} in `index.exec_algorithms`: {} not found in `index.exec_algorithm_orders`",
-                    failure, exec_algorithm_id
+                    failure,
+                    exec_algorithm_id
                 );
                 error_count += 1;
             }
@@ -899,10 +943,10 @@ impl Cache {
             - timestamp_us;
 
         if error_count == 0 {
-            info!("Integrity check passed in {}μs", total_us);
+            log::info!("Integrity check passed in {}μs", total_us);
             true
         } else {
-            error!(
+            log::error!(
                 "Integrity check failed with {} error{} in {}μs",
                 error_count,
                 if error_count == 1 { "" } else { "s" },
@@ -917,20 +961,20 @@ impl Cache {
     ///'Open state' is considered to be open orders and open positions.
     #[must_use]
     pub fn check_residuals(&self) -> bool {
-        debug!("Checking residuals");
+        log::debug!("Checking residuals");
 
         let mut residuals = false;
 
         // Check for any open orders
         for order in self.orders_open(None, None, None, None) {
             residuals = true;
-            warn!("Residual {:?}", order);
+            log::warn!("Residual {:?}", order);
         }
 
         // Check for any open positions
         for position in self.positions_open(None, None, None, None) {
             residuals = true;
-            warn!("Residual {}", position);
+            log::warn!("Residual {}", position);
         }
 
         residuals
@@ -939,14 +983,14 @@ impl Cache {
     /// Clears the caches index.
     pub fn clear_index(&mut self) {
         self.index.clear();
-        debug!("Cleared index");
+        log::debug!("Cleared index");
     }
 
     /// Resets the cache.
     ///
     /// All stateful fields are reset to their initial value.
     pub fn reset(&mut self) {
-        debug!("Resetting cache");
+        log::debug!("Resetting cache");
 
         self.general.clear();
         self.quotes.clear();
@@ -964,23 +1008,21 @@ impl Cache {
 
         self.clear_index();
 
-        info!("Reset cache");
+        log::info!("Reset cache");
     }
 
     /// Dispose of the cache which will close any underlying database adapter.
-    pub fn dispose(&mut self) -> anyhow::Result<()> {
+    pub fn dispose(&mut self) {
         if let Some(database) = &mut self.database {
-            database.close()?;
+            database.close();
         }
-        Ok(())
     }
 
     /// Flushes the caches database which permanently removes all persisted data.
-    pub fn flush_db(&mut self) -> anyhow::Result<()> {
+    pub fn flush_db(&mut self) {
         if let Some(database) = &mut self.database {
-            database.flush()?;
+            database.flush();
         }
-        Ok(())
     }
 
     /// Adds a general object `value` (as bytes) to the cache at the given `key`.
@@ -988,10 +1030,10 @@ impl Cache {
     /// The cache is agnostic to what the bytes actually represent (and how it may be serialized),
     /// which provides maximum flexibility.
     pub fn add(&mut self, key: &str, value: Bytes) -> anyhow::Result<()> {
-        check_valid_string(key, stringify!(key))?;
-        check_predicate_false(value.is_empty(), stringify!(value))?;
+        check_valid_string(key, stringify!(key)).expect(FAILED);
+        check_predicate_false(value.is_empty(), stringify!(value)).expect(FAILED);
 
-        debug!("Adding general {key}");
+        log::debug!("Adding general {key}");
         self.general.insert(key.to_string(), value.clone());
 
         if let Some(database) = &mut self.database {
@@ -1002,7 +1044,7 @@ impl Cache {
 
     /// Adds the given order `book` to the cache.
     pub fn add_order_book(&mut self, book: OrderBook) -> anyhow::Result<()> {
-        debug!("Adding `OrderBook` {}", book.instrument_id);
+        log::debug!("Adding `OrderBook` {}", book.instrument_id);
 
         if self.config.save_market_data {
             if let Some(database) = &mut self.database {
@@ -1016,7 +1058,7 @@ impl Cache {
 
     /// Adds the given `quote` tick to the cache.
     pub fn add_quote(&mut self, quote: QuoteTick) -> anyhow::Result<()> {
-        debug!("Adding `QuoteTick` {}", quote.instrument_id);
+        log::debug!("Adding `QuoteTick` {}", quote.instrument_id);
 
         if self.config.save_market_data {
             if let Some(database) = &mut self.database {
@@ -1034,10 +1076,10 @@ impl Cache {
 
     /// Adds the given `quotes` to the cache.
     pub fn add_quotes(&mut self, quotes: &[QuoteTick]) -> anyhow::Result<()> {
-        check_slice_not_empty(quotes, stringify!(quotes))?;
+        check_slice_not_empty(quotes, stringify!(quotes)).unwrap();
 
         let instrument_id = quotes[0].instrument_id;
-        debug!("Adding `QuoteTick`[{}] {}", quotes.len(), instrument_id);
+        log::debug!("Adding `QuoteTick`[{}] {}", quotes.len(), instrument_id);
 
         if self.config.save_market_data {
             if let Some(database) = &mut self.database {
@@ -1060,7 +1102,7 @@ impl Cache {
 
     /// Adds the given `trade` tick to the cache.
     pub fn add_trade(&mut self, trade: TradeTick) -> anyhow::Result<()> {
-        debug!("Adding `TradeTick` {}", trade.instrument_id);
+        log::debug!("Adding `TradeTick` {}", trade.instrument_id);
 
         if self.config.save_market_data {
             if let Some(database) = &mut self.database {
@@ -1078,10 +1120,10 @@ impl Cache {
 
     /// Adds the give `trades` to the cache.
     pub fn add_trades(&mut self, trades: &[TradeTick]) -> anyhow::Result<()> {
-        check_slice_not_empty(trades, stringify!(trades))?;
+        check_slice_not_empty(trades, stringify!(trades)).unwrap();
 
         let instrument_id = trades[0].instrument_id;
-        debug!("Adding `TradeTick`[{}] {}", trades.len(), instrument_id);
+        log::debug!("Adding `TradeTick`[{}] {}", trades.len(), instrument_id);
 
         if self.config.save_market_data {
             if let Some(database) = &mut self.database {
@@ -1104,7 +1146,7 @@ impl Cache {
 
     /// Adds the given `bar` to the cache.
     pub fn add_bar(&mut self, bar: Bar) -> anyhow::Result<()> {
-        debug!("Adding `Bar` {}", bar.bar_type);
+        log::debug!("Adding `Bar` {}", bar.bar_type);
 
         if self.config.save_market_data {
             if let Some(database) = &mut self.database {
@@ -1122,10 +1164,10 @@ impl Cache {
 
     /// Adds the given `bars` to the cache.
     pub fn add_bars(&mut self, bars: &[Bar]) -> anyhow::Result<()> {
-        check_slice_not_empty(bars, stringify!(bars))?;
+        check_slice_not_empty(bars, stringify!(bars)).unwrap();
 
         let bar_type = bars[0].bar_type;
-        debug!("Adding `Bar`[{}] {}", bars.len(), bar_type);
+        log::debug!("Adding `Bar`[{}] {}", bars.len(), bar_type);
 
         if self.config.save_market_data {
             if let Some(database) = &mut self.database {
@@ -1148,7 +1190,7 @@ impl Cache {
 
     /// Adds the given `currency` to the cache.
     pub fn add_currency(&mut self, currency: Currency) -> anyhow::Result<()> {
-        debug!("Adding `Currency` {}", currency.code);
+        log::debug!("Adding `Currency` {}", currency.code);
 
         if let Some(database) = &mut self.database {
             database.add_currency(&currency)?;
@@ -1160,7 +1202,7 @@ impl Cache {
 
     /// Adds the given `instrument` to the cache.
     pub fn add_instrument(&mut self, instrument: InstrumentAny) -> anyhow::Result<()> {
-        debug!("Adding `Instrument` {}", instrument.id());
+        log::debug!("Adding `Instrument` {}", instrument.id());
 
         if let Some(database) = &mut self.database {
             database.add_instrument(&instrument)?;
@@ -1172,7 +1214,7 @@ impl Cache {
 
     /// Adds the given `synthetic` instrument to the cache.
     pub fn add_synthetic(&mut self, synthetic: SyntheticInstrument) -> anyhow::Result<()> {
-        debug!("Adding `SyntheticInstrument` {}", synthetic.id);
+        log::debug!("Adding `SyntheticInstrument` {}", synthetic.id);
 
         if let Some(database) = &mut self.database {
             database.add_synthetic(&synthetic)?;
@@ -1184,7 +1226,7 @@ impl Cache {
 
     /// Adds the given `account` to the cache.
     pub fn add_account(&mut self, account: AccountAny) -> anyhow::Result<()> {
-        debug!("Adding `Account` {}", account.id());
+        log::debug!("Adding `Account` {}", account.id());
 
         if let Some(database) = &mut self.database {
             database.add_account(&account)?;
@@ -1238,6 +1280,7 @@ impl Cache {
     ///
     /// # Errors
     ///
+    /// This function returns an error:
     /// If not `replace_existing` and the `order.client_order_id` is already contained in the cache.
     pub fn add_order(
         &mut self,
@@ -1259,28 +1302,32 @@ impl Cache {
                 &self.orders,
                 stringify!(client_order_id),
                 stringify!(orders),
-            )?;
+            )
+            .expect(FAILED);
             check_key_not_in_map(
                 &client_order_id,
                 &self.orders,
                 stringify!(client_order_id),
                 stringify!(orders),
-            )?;
+            )
+            .expect(FAILED);
             check_key_not_in_map(
                 &client_order_id,
                 &self.orders,
                 stringify!(client_order_id),
                 stringify!(orders),
-            )?;
+            )
+            .expect(FAILED);
             check_key_not_in_map(
                 &client_order_id,
                 &self.orders,
                 stringify!(client_order_id),
                 stringify!(orders),
-            )?;
+            )
+            .expect(FAILED);
         };
 
-        debug!("Adding {:?}", order);
+        log::debug!("Adding {:?}", order);
 
         self.index.orders.insert(client_order_id);
         self.index
@@ -1319,10 +1366,9 @@ impl Cache {
                 .or_default()
                 .insert(client_order_id);
 
-            // SAFETY: We can guarantee the `exec_spawn_id` is Some
             self.index
                 .exec_spawn_orders
-                .entry(exec_spawn_id.unwrap())
+                .entry(exec_spawn_id.expect("`exec_spawn_id` is guaranteed to exist"))
                 .or_default()
                 .insert(client_order_id);
         }
@@ -1354,7 +1400,7 @@ impl Cache {
         }
 
         if let Some(database) = &mut self.database {
-            database.add_order(&order)?;
+            database.add_order(&order, client_id)?;
             // TODO: Implement
             // if self.config.snapshot_orders {
             //     database.snapshot_order_state(order)?;
@@ -2348,7 +2394,7 @@ impl Cache {
 
     /// Gets a reference to the general object value for the given `key` (if found).
     pub fn get(&self, key: &str) -> anyhow::Result<Option<&Bytes>> {
-        check_valid_string(key, stringify!(key))?;
+        check_valid_string(key, stringify!(key)).expect(FAILED);
 
         Ok(self.general.get(key))
     }
@@ -2373,7 +2419,6 @@ impl Cache {
                         (quote.ask_price.as_f64() + quote.bid_price.as_f64()) / 2.0,
                         quote.bid_price.precision + 1,
                     )
-                    .expect("Error calculating mid price")
                 })
             }),
             PriceType::Last => self
@@ -2526,15 +2571,15 @@ impl Cache {
         let mut bar_types = self
             .bars
             .keys()
-            .filter(|bar_type| bar_type.aggregation_source == aggregation_source)
+            .filter(|bar_type| bar_type.aggregation_source() == aggregation_source)
             .collect::<Vec<&BarType>>();
 
         if let Some(instrument_id) = instrument_id {
-            bar_types.retain(|bar_type| &bar_type.instrument_id == instrument_id);
+            bar_types.retain(|bar_type| bar_type.instrument_id() == *instrument_id);
         }
 
         if let Some(price_type) = price_type {
-            bar_types.retain(|bar_type| &bar_type.spec.price_type == price_type);
+            bar_types.retain(|bar_type| &bar_type.spec().price_type == price_type);
         }
 
         bar_types
@@ -2652,14 +2697,12 @@ mod tests {
 
     #[rstest]
     fn test_dispose_when_empty(mut cache: Cache) {
-        let result = cache.dispose();
-        assert!(result.is_ok());
+        cache.dispose();
     }
 
     #[rstest]
     fn test_flush_db_when_empty(mut cache: Cache) {
-        let result = cache.flush_db();
-        assert!(result.is_ok());
+        cache.flush_db();
     }
 
     #[rstest]
@@ -2971,7 +3014,7 @@ mod tests {
             &order,
             &audusd_sim,
             None,
-            Some(PositionId::new("P-123456").unwrap()),
+            Some(PositionId::new("P-123456")),
             None,
             None,
             None,
@@ -2979,7 +3022,7 @@ mod tests {
             None,
             None,
         );
-        let position = Position::new(&audusd_sim, fill.into()).unwrap();
+        let position = Position::new(&audusd_sim, fill.into());
         cache
             .add_position(position.clone(), OmsType::Netting)
             .unwrap();
@@ -3060,7 +3103,7 @@ mod tests {
 
     #[rstest]
     fn test_order_book_when_some(mut cache: Cache, audusd_sim: CurrencyPair) {
-        let mut book = OrderBook::new(BookType::L2_MBP, audusd_sim.id);
+        let mut book = OrderBook::new(audusd_sim.id, BookType::L2_MBP);
         cache.add_order_book(book.clone()).unwrap();
         let result = cache.order_book(&audusd_sim.id);
         assert_eq!(result, Some(&mut book));

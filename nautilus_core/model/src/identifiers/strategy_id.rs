@@ -17,7 +17,7 @@
 
 use std::fmt::{Debug, Display, Formatter};
 
-use nautilus_core::correctness::{check_string_contains, check_valid_string};
+use nautilus_core::correctness::{check_string_contains, check_valid_string, FAILED};
 use ustr::Ustr;
 
 /// The identifier for all 'external' strategy IDs (not local to this system instance).
@@ -46,14 +46,24 @@ impl StrategyId {
     ///
     /// # Panics
     ///
-    /// Panics if `value` is not a valid string, or does not contain a hyphen '-' separator.
-    pub fn new(value: &str) -> anyhow::Result<Self> {
+    /// This function panics:
+    /// - If `value` is not a valid string, or does not contain a hyphen '-' separator.
+    pub fn new_checked(value: &str) -> anyhow::Result<Self> {
         check_valid_string(value, stringify!(value))?;
         if value != EXTERNAL_STRATEGY_ID {
             check_string_contains(value, "-", stringify!(value))?;
         }
-
         Ok(Self(Ustr::from(value)))
+    }
+
+    /// Creates a new [`StrategyId`] instance.
+    ///
+    /// # Panics
+    ///
+    /// This function panics:
+    /// - If `value` is not a valid string.
+    pub fn new(value: &str) -> Self {
+        Self::new_checked(value).expect(FAILED)
     }
 
     /// Sets the inner identifier value.
@@ -76,7 +86,7 @@ impl StrategyId {
     #[must_use]
     pub fn external() -> Self {
         // SAFETY:: Constant value is safe
-        Self::new(EXTERNAL_STRATEGY_ID).unwrap()
+        Self::new(EXTERNAL_STRATEGY_ID)
     }
 
     #[must_use]
@@ -100,12 +110,6 @@ impl Debug for StrategyId {
 impl Display for StrategyId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl From<&str> for StrategyId {
-    fn from(input: &str) -> Self {
-        Self::new(input).unwrap()
     }
 }
 

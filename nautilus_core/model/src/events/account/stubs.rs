@@ -41,7 +41,6 @@ pub fn cash_account_state() -> AccountState {
         0.into(),
         Some(Currency::USD()),
     )
-    .unwrap()
 }
 
 #[fixture]
@@ -53,10 +52,11 @@ pub fn cash_account_state_million_usd(
     AccountState::new(
         account_id(),
         AccountType::Cash,
-        vec![
-            AccountBalance::new(Money::from(total), Money::from(locked), Money::from(free))
-                .unwrap(),
-        ],
+        vec![AccountBalance::new(
+            Money::from(total),
+            Money::from(locked),
+            Money::from(free),
+        )],
         vec![],
         true,
         UUID4::new(),
@@ -64,7 +64,6 @@ pub fn cash_account_state_million_usd(
         0.into(),
         Some(Currency::USD()),
     )
-    .unwrap()
 }
 
 #[fixture]
@@ -76,8 +75,7 @@ pub fn cash_account_state_million_usdt() -> AccountState {
             Money::from("1000000 USD"),
             Money::from("0 USD"),
             Money::from("1000000 USD"),
-        )
-        .unwrap()],
+        )],
         vec![],
         true,
         uuid4(),
@@ -85,7 +83,6 @@ pub fn cash_account_state_million_usdt() -> AccountState {
         0.into(),
         Some(Currency::USD()),
     )
-    .unwrap()
 }
 
 #[fixture]
@@ -94,14 +91,12 @@ pub fn cash_account_state_multi() -> AccountState {
         Money::from("10 BTC"),
         Money::from("0 BTC"),
         Money::from("10 BTC"),
-    )
-    .unwrap();
+    );
     let eth_account_balance = AccountBalance::new(
         Money::from("20 ETH"),
         Money::from("0 ETH"),
         Money::from("20 ETH"),
-    )
-    .unwrap();
+    );
     AccountState::new(
         account_id(),
         AccountType::Cash,
@@ -113,7 +108,6 @@ pub fn cash_account_state_multi() -> AccountState {
         0.into(),
         None, // multi cash account
     )
-    .unwrap()
 }
 
 #[fixture]
@@ -122,14 +116,12 @@ pub fn cash_account_state_multi_changed_btc() -> AccountState {
         Money::from("9 BTC"),
         Money::from("0.5 BTC"),
         Money::from("8.5 BTC"),
-    )
-    .unwrap();
+    );
     let eth_account_balance = AccountBalance::new(
         Money::from("20 ETH"),
         Money::from("0 ETH"),
         Money::from("20 ETH"),
-    )
-    .unwrap();
+    );
     AccountState::new(
         account_id(),
         AccountType::Cash,
@@ -141,7 +133,6 @@ pub fn cash_account_state_multi_changed_btc() -> AccountState {
         0.into(),
         None, // multi cash account
     )
-    .unwrap()
 }
 
 #[fixture]
@@ -157,5 +148,4 @@ pub fn margin_account_state() -> AccountState {
         0.into(),
         Some(Currency::USD()),
     )
-    .unwrap()
 }

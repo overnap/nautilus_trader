@@ -13,7 +13,6 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-
 import msgspec
 
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
@@ -123,7 +122,7 @@ class BinanceListenKeyHttp(BinanceHttpEndpoint):
 
 class BinanceUserDataHttpAPI:
     """
-    Provides access to the `Binance` User HTTP REST API.
+    Provides access to the Binance User HTTP REST API.
 
     Parameters
     ----------

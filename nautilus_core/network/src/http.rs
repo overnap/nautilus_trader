@@ -17,88 +17,25 @@
 
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
+    error::Error,
+    fmt::Display,
     hash::{Hash, Hasher},
     sync::Arc,
+    time::Duration,
 };
 
+use bytes::Bytes;
 use futures_util::{stream, StreamExt};
 use pyo3::{exceptions::PyException, prelude::*, types::PyBytes};
 use reqwest::{
     header::{HeaderMap, HeaderName},
     Method, Response, Url,
 };
-use tracing::trace;
 
 use crate::ratelimiter::{clock::MonotonicClock, quota::Quota, RateLimiter};
 
-/// A high-performance `HttpClient` for HTTP requests.
-///
-/// The client is backed by a hyper Client which keeps connections alive and
-/// can be cloned cheaply. The client also has a list of header fields to
-/// extract from the response.
-///
-/// The client returns an [`HttpResponse`]. The client filters only the key value
-/// for the give `header_keys`.
-#[derive(Clone)]
-pub struct InnerHttpClient {
-    client: reqwest::Client,
-    header_keys: Vec<String>,
-}
-
-impl InnerHttpClient {
-    pub async fn send_request(
-        &self,
-        method: Method,
-        url: String,
-        headers: HashMap<String, String>,
-        body: Option<Vec<u8>>,
-    ) -> Result<HttpResponse, Box<dyn std::error::Error + Send + Sync>> {
-        let reqwest_url = Url::parse(url.as_str())?;
-
-        let mut header_map = HeaderMap::new();
-        for (header_key, header_value) in &headers {
-            let key = HeaderName::from_bytes(header_key.as_bytes())?;
-            let _ = header_map.insert(key, header_value.parse().unwrap());
-        }
-
-        let request_builder = self.client.request(method, reqwest_url).headers(header_map);
-
-        let request = match body {
-            Some(b) => request_builder.body(b).build()?,
-            None => request_builder.build()?,
-        };
-
-        trace!("{request:?}");
-
-        let response = self.client.execute(request).await?;
-        self.to_response(response).await
-    }
-
-    pub async fn to_response(
-        &self,
-        response: Response,
-    ) -> Result<HttpResponse, Box<dyn std::error::Error + Send + Sync>> {
-        trace!("{response:?}");
-
-        let headers: HashMap<String, String> = self
-            .header_keys
-            .iter()
-            .filter_map(|key| response.headers().get(key).map(|val| (key, val)))
-            .filter_map(|(key, val)| val.to_str().map(|v| (key, v)).ok())
-            .map(|(k, v)| (k.clone(), v.to_owned()))
-            .collect();
-        let status = response.status().as_u16();
-        let bytes = response.bytes().await?;
-
-        Ok(HttpResponse {
-            status,
-            headers,
-            body: bytes.to_vec(),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Represents the HTTP methods supported by the `HttpClient`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.network")
@@ -124,134 +61,172 @@ impl Into<Method> for HttpMethod {
     }
 }
 
-#[pymethods]
-impl HttpMethod {
-    fn __hash__(&self) -> isize {
-        let mut h = DefaultHasher::new();
-        self.hash(&mut h);
-        h.finish() as isize
-    }
-}
-
-/// HttpResponse contains relevant data from a HTTP request.
-#[derive(Debug, Clone)]
+/// Represents the response from an HTTP request.
+///
+/// This struct encapsulates the status, headers, and body of an HTTP response,
+/// providing easy access to the key components of the response.
+#[derive(Clone, Debug)]
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.network")
 )]
 pub struct HttpResponse {
-    #[pyo3(get)]
+    /// The HTTP status code returned by the server.
     pub status: u16,
-    #[pyo3(get)]
-    headers: HashMap<String, String>,
-    body: Vec<u8>,
+    /// The headers returned by the server as a map of key-value pairs.
+    pub(crate) headers: HashMap<String, String>,
+    /// The body of the response as raw bytes.
+    pub(crate) body: Bytes,
+}
+
+/// A high-performance HTTP client with rate limiting and timeout capabilities.
+///
+/// This struct is designed to handle HTTP requests efficiently, providing
+/// support for rate limiting, timeouts, and custom headers. The client is
+/// built on top of `reqwest` and can be used for both synchronous and
+/// asynchronous HTTP requests.
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.network")
+)]
+pub struct HttpClient {
+    /// The rate limiter to control the request rate.
+    pub(crate) rate_limiter: Arc<RateLimiter<String, MonotonicClock>>,
+    /// The underlying HTTP client used to make requests.
+    pub(crate) client: InnerHttpClient,
+}
+
+/// Represents errors that can occur when using the `HttpClient`.
+///
+/// This enum provides variants for general HTTP errors and timeout errors,
+/// allowing for more granular error handling.
+#[derive(thiserror::Error, Debug)]
+pub enum HttpClientError {
+    #[error("HTTP error occurred: {0}")]
+    Error(String),
+
+    #[error("HTTP request timed out: {0}")]
+    TimeoutError(String),
+}
+
+impl From<reqwest::Error> for HttpClientError {
+    fn from(source: reqwest::Error) -> Self {
+        if source.is_timeout() {
+            Self::TimeoutError(source.to_string())
+        } else {
+            Self::Error(source.to_string())
+        }
+    }
+}
+
+impl From<String> for HttpClientError {
+    fn from(value: String) -> Self {
+        Self::Error(value)
+    }
+}
+
+/// A high-performance `HttpClient` for HTTP requests.
+///
+/// The client is backed by a hyper Client which keeps connections alive and
+/// can be cloned cheaply. The client also has a list of header fields to
+/// extract from the response.
+///
+/// The client returns an [`HttpResponse`]. The client filters only the key value
+/// for the give `header_keys`.
+#[derive(Clone)]
+pub struct InnerHttpClient {
+    pub(crate) client: reqwest::Client,
+    pub(crate) header_keys: Vec<String>,
+}
+
+impl InnerHttpClient {
+    /// Sends an HTTP request with the specified method, URL, headers, and body.
+    ///
+    /// - `method`: The HTTP method to use (e.g., GET, POST).
+    /// - `url`: The URL to send the request to.
+    /// - `headers`: A map of header key-value pairs to include in the request.
+    /// - `body`: An optional body for the request, represented as a byte vector.
+    /// - `timeout_secs`: An optional timeout for the request in seconds.
+    pub async fn send_request(
+        &self,
+        method: Method,
+        url: String,
+        headers: HashMap<String, String>,
+        body: Option<Vec<u8>>,
+        timeout_secs: Option<u64>,
+    ) -> Result<HttpResponse, HttpClientError> {
+        let reqwest_url = Url::parse(url.as_str())
+            .map_err(|e| HttpClientError::from(format!("URL parse error: {}", e)))?;
+
+        let mut header_map = HeaderMap::new();
+        for (header_key, header_value) in &headers {
+            let key = HeaderName::from_bytes(header_key.as_bytes())
+                .map_err(|e| HttpClientError::from(format!("Invalid header name: {}", e)))?;
+            let _ = header_map.insert(
+                key,
+                header_value
+                    .parse()
+                    .map_err(|e| HttpClientError::from(format!("Invalid header value: {}", e)))?,
+            );
+        }
+
+        let mut request_builder = self.client.request(method, reqwest_url).headers(header_map);
+
+        if let Some(timeout_secs) = timeout_secs {
+            request_builder = request_builder.timeout(Duration::new(timeout_secs, 0));
+        }
+
+        let request = match body {
+            Some(b) => request_builder
+                .body(b)
+                .build()
+                .map_err(HttpClientError::from)?,
+            None => request_builder.build().map_err(HttpClientError::from)?,
+        };
+
+        tracing::trace!("{request:?}");
+
+        let response = self
+            .client
+            .execute(request)
+            .await
+            .map_err(HttpClientError::from)?;
+
+        self.to_response(response).await
+    }
+
+    /// Converts a `reqwest::Response` into an `HttpResponse`.
+    pub async fn to_response(&self, response: Response) -> Result<HttpResponse, HttpClientError> {
+        tracing::trace!("{response:?}");
+
+        let headers: HashMap<String, String> = self
+            .header_keys
+            .iter()
+            .filter_map(|key| response.headers().get(key).map(|val| (key, val)))
+            .filter_map(|(key, val)| val.to_str().map(|v| (key, v)).ok())
+            .map(|(k, v)| (k.clone(), v.to_owned()))
+            .collect();
+        let status = response.status().as_u16();
+        let body = response.bytes().await.map_err(HttpClientError::from)?;
+
+        Ok(HttpResponse {
+            status,
+            headers,
+            body,
+        })
+    }
 }
 
 impl Default for InnerHttpClient {
     /// Creates a new default [`InnerHttpClient`] instance.
+    ///
+    /// The default client is initialized with an empty list of header keys and a new `reqwest::Client`.
     fn default() -> Self {
         let client = reqwest::Client::new();
         Self {
             client,
             header_keys: Default::default(),
         }
-    }
-}
-
-#[pymethods]
-impl HttpResponse {
-    #[new]
-    fn py_new(status: u16, body: Vec<u8>) -> Self {
-        Self {
-            status,
-            body,
-            headers: Default::default(),
-        }
-    }
-
-    #[getter]
-    fn get_body(&self, py: Python) -> PyResult<Py<PyBytes>> {
-        Ok(PyBytes::new(py, &self.body).into())
-    }
-}
-
-#[cfg_attr(
-    feature = "python",
-    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.network")
-)]
-pub struct HttpClient {
-    rate_limiter: Arc<RateLimiter<String, MonotonicClock>>,
-    client: InnerHttpClient,
-}
-
-#[pymethods]
-impl HttpClient {
-    /// Create a new HttpClient.
-    ///
-    /// * `header_keys`: The key value pairs for the given `header_keys` are retained from the responses.
-    /// * `keyed_quota`: A list of string quota pairs that gives quota for specific key values.
-    /// * `default_quota`: The default rate limiting quota for any request.
-    /// Default quota is optional and no quota is passthrough.
-    #[new]
-    #[pyo3(signature = (header_keys = Vec::new(), keyed_quotas = Vec::new(), default_quota = None))]
-    #[must_use]
-    pub fn py_new(
-        header_keys: Vec<String>,
-        keyed_quotas: Vec<(String, Quota)>,
-        default_quota: Option<Quota>,
-    ) -> Self {
-        let client = reqwest::Client::new();
-        let rate_limiter = Arc::new(RateLimiter::new_with_quota(default_quota, keyed_quotas));
-
-        let client = InnerHttpClient {
-            client,
-            header_keys,
-        };
-
-        Self {
-            rate_limiter,
-            client,
-        }
-    }
-
-    /// Send an HTTP request.
-    ///
-    /// * `method`: The HTTP method to call.
-    /// * `url`: The request is sent to this url.
-    /// * `headers`: The header key value pairs in the request.
-    /// * `body`: The bytes sent in the body of request.
-    /// * `keys`: The keys used for rate limiting the request.
-    #[pyo3(name = "request")]
-    fn py_request<'py>(
-        &self,
-        method: HttpMethod,
-        url: String,
-        headers: Option<HashMap<String, String>>,
-        body: Option<&'py PyBytes>,
-        keys: Option<Vec<String>>,
-        py: Python<'py>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        let headers = headers.unwrap_or_default();
-        let body_vec = body.map(|py_bytes| py_bytes.as_bytes().to_vec());
-        let keys = keys.unwrap_or_default();
-        let client = self.client.clone();
-        let rate_limiter = self.rate_limiter.clone();
-        let method = method.into();
-        pyo3_asyncio_0_21::tokio::future_into_py(py, async move {
-            // Check keys for rate limiting quota
-            let tasks = keys.iter().map(|key| rate_limiter.until_key_ready(key));
-            stream::iter(tasks)
-                .for_each(|key| async move {
-                    key.await;
-                })
-                .await;
-            match client.send_request(method, url, headers, body_vec).await {
-                Ok(res) => Ok(res),
-                Err(e) => Err(PyErr::new::<PyException, _>(format!(
-                    "Error handling response: {e}"
-                ))),
-            }
-        })
     }
 }
 
@@ -316,6 +291,7 @@ mod tests {
                 format!("{url}/get"),
                 HashMap::new(),
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -335,6 +311,7 @@ mod tests {
                 reqwest::Method::POST,
                 format!("{url}/post"),
                 HashMap::new(),
+                None,
                 None,
             )
             .await
@@ -369,6 +346,7 @@ mod tests {
                 format!("{url}/post"),
                 HashMap::new(),
                 Some(body_bytes),
+                None,
             )
             .await
             .unwrap();
@@ -388,6 +366,7 @@ mod tests {
                 format!("{url}/patch"),
                 HashMap::new(),
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -406,6 +385,7 @@ mod tests {
                 reqwest::Method::DELETE,
                 format!("{url}/delete"),
                 HashMap::new(),
+                None,
                 None,
             )
             .await

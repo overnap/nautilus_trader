@@ -47,10 +47,10 @@ pub struct CashAccount {
 
 impl CashAccount {
     /// Creates a new [`CashAccount`] instance.
-    pub fn new(event: AccountState, calculate_account_state: bool) -> anyhow::Result<Self> {
-        Ok(Self {
-            base: BaseAccount::new(event, calculate_account_state)?,
-        })
+    pub fn new(event: AccountState, calculate_account_state: bool) -> Self {
+        Self {
+            base: BaseAccount::new(event, calculate_account_state),
+        }
     }
 
     #[must_use]
@@ -230,17 +230,15 @@ impl Default for CashAccount {
                 Money::from("1000000 USD"),
                 Money::from("0 USD"),
                 Money::from("1000000 USD"),
-            )
-            .unwrap()],
+            )],
             vec![],
             true,
             uuid4(),
             0.into(),
             0.into(),
             Some(Currency::USD()),
-        )
-        .unwrap();
-        Self::new(init_event, false).unwrap()
+        );
+        Self::new(init_event, false)
     }
 }
 
@@ -478,7 +476,7 @@ mod tests {
             &order,
             &audusd_sim,
             None,
-            Some(PositionId::new("P-123456").unwrap()),
+            Some(PositionId::new("P-123456")),
             Some(Price::from("0.8")),
             None,
             None,
@@ -486,7 +484,7 @@ mod tests {
             None,
             Some(AccountId::from("SIM-001")),
         );
-        let position = Position::new(&audusd_sim, fill.clone().into()).unwrap();
+        let position = Position::new(&audusd_sim, fill.clone().into());
         let pnls = cash_account_million_usd
             .calculate_pnls(audusd_sim, fill.into(), Some(position)) // TODO: Remove clone
             .unwrap();
@@ -510,7 +508,7 @@ mod tests {
             &order1,
             &btcusdt,
             None,
-            Some(PositionId::new("P-123456").unwrap()),
+            Some(PositionId::new("P-123456")),
             Some(Price::from("45500.00")),
             None,
             None,
@@ -518,7 +516,7 @@ mod tests {
             None,
             Some(AccountId::from("SIM-001")),
         );
-        let position = Position::new(&btcusdt, fill1.clone().into()).unwrap();
+        let position = Position::new(&btcusdt, fill1.clone().into());
         let result1 = cash_account_multi
             .calculate_pnls(
                 currency_pair_btcusdt.into_any(),
@@ -537,7 +535,7 @@ mod tests {
             &order2,
             &btcusdt,
             None,
-            Some(PositionId::new("P-123456").unwrap()),
+            Some(PositionId::new("P-123456")),
             Some(Price::from("45500.00")),
             None,
             None,

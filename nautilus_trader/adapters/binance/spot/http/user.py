@@ -13,7 +13,6 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
-
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.http.user import BinanceUserDataHttpAPI
@@ -21,7 +20,7 @@ from nautilus_trader.adapters.binance.http.user import BinanceUserDataHttpAPI
 
 class BinanceSpotUserDataHttpAPI(BinanceUserDataHttpAPI):
     """
-    Provides access to the `Binance Spot/Margin` User Data HTTP REST API.
+    Provides access to the Binance Spot/Margin User Data HTTP REST API.
 
     Parameters
     ----------

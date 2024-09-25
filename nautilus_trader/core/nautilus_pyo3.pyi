@@ -1950,10 +1950,10 @@ class OptionsContract:
         asset_class: AssetClass,
         underlying: str,
         option_kind: OptionKind,
-        activation_ns: int,
-        expiration_ns: int,
         strike_price: Price,
         currency: Currency,
+        activation_ns: int,
+        expiration_ns: int,
         price_precision: int,
         price_increment: Price,
         multiplier: Quantity,
@@ -2518,6 +2518,12 @@ class PostgresCacheDatabase:
 # Network
 ###################################################################################################
 
+class HttpError(Exception):
+    ...
+
+class HttpTimeoutError(Exception):
+    ...
+
 class HttpClient:
     def __init__(
         self,
@@ -2532,6 +2538,7 @@ class HttpClient:
         headers: dict[str, str] | None = None,
         body: bytes | None = None,
         keys: list[str] | None = None,
+        timeout_secs: int | None = None,
     ) -> HttpResponse: ...
 
 class HttpMethod(Enum):
@@ -2557,6 +2564,9 @@ class Quota:
     @classmethod
     def rate_per_hour(cls, max_burst: int) -> Quota: ...
 
+class WebSocketClientError(Exception):
+    ...
+
 class WebSocketConfig:
     def __init__(
         self,
@@ -2578,10 +2588,9 @@ class WebSocketClient:
         post_disconnection: Callable[..., None] | None = None,
     ) -> Awaitable[WebSocketClient]: ...
     def disconnect(self) -> Awaitable[None]: ...
-    @property
     def is_alive(self) -> bool: ...
     def send(self, data: bytes) -> Awaitable[None]: ...
-    def send_text(self, data: str) -> Awaitable[None]: ...
+    def send_text(self, data: bytes) -> Awaitable[None]: ...
     def send_pong(self, data: bytes) -> Awaitable[None]: ...
 
 class SocketClient:
@@ -2594,7 +2603,6 @@ class SocketClient:
         post_disconnection: Callable[..., None] | None = None,
     ) -> Awaitable[SocketClient]: ...
     def disconnect(self) -> Awaitable[None]: ...
-    @property
     def is_alive(self) -> bool: ...
     def send(self, data: bytes) -> Awaitable[None]: ...
 
@@ -3888,3 +3896,8 @@ class DatabentoLiveClient:
         callback_pyo3: Callable,
     ) -> Awaitable[None]: ...
     def close(self) -> None: ...
+
+# Crypto
+def hmac_sign(secret: str, data: str) -> str: ...
+def rsa_signature(private_key_pem: str, data: str) -> str: ...
+def ed25519_signature(private_key: bytes, data: str) -> str: ...

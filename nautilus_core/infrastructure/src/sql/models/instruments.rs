@@ -133,6 +133,9 @@ impl<'r> FromRow<'r, PgRow> for CryptoFutureModel {
         let margin_maint = row
             .try_get::<String, _>("margin_maint")
             .map(|res| Decimal::from_str(res.as_str()).unwrap())?;
+        let multiplier = row
+            .try_get::<String, _>("multiplier")
+            .map(|res| Quantity::from(res.as_str()))?;
         let lot_size = row
             .try_get::<String, _>("lot_size")
             .map(|res| Quantity::from(res.as_str()))?;
@@ -184,6 +187,7 @@ impl<'r> FromRow<'r, PgRow> for CryptoFutureModel {
             taker_fee,
             margin_init,
             margin_maint,
+            Some(multiplier),
             Some(lot_size),
             max_quantity,
             min_quantity,
@@ -193,8 +197,7 @@ impl<'r> FromRow<'r, PgRow> for CryptoFutureModel {
             min_price,
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(CryptoFutureModel(inst))
     }
 }
@@ -237,6 +240,9 @@ impl<'r> FromRow<'r, PgRow> for CryptoPerpetualModel {
         let margin_maint = row
             .try_get::<String, _>("margin_maint")
             .map(|res| Decimal::from_str(res.as_str()).unwrap())?;
+        let multiplier = row
+            .try_get::<String, _>("multiplier")
+            .map(|res| Quantity::from(res.as_str()))?;
         let lot_size = row
             .try_get::<String, _>("lot_size")
             .map(|res| Quantity::from(res.as_str()))?;
@@ -286,6 +292,7 @@ impl<'r> FromRow<'r, PgRow> for CryptoPerpetualModel {
             taker_fee,
             margin_init,
             margin_maint,
+            Some(multiplier),
             Some(lot_size),
             max_quantity,
             min_quantity,
@@ -295,8 +302,7 @@ impl<'r> FromRow<'r, PgRow> for CryptoPerpetualModel {
             min_price,
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(CryptoPerpetualModel(inst))
     }
 }
@@ -392,8 +398,7 @@ impl<'r> FromRow<'r, PgRow> for CurrencyPairModel {
             min_price,
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(CurrencyPairModel(inst))
     }
 }
@@ -472,8 +477,7 @@ impl<'r> FromRow<'r, PgRow> for EquityModel {
             min_price,
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(EquityModel(inst))
     }
 }
@@ -485,7 +489,7 @@ impl<'r> FromRow<'r, PgRow> for FuturesContractModel {
             .map(|res| InstrumentId::from(res.as_str()))?;
         let raw_symbol = row
             .try_get::<String, _>("raw_symbol")
-            .map(|res| Symbol::new(res.as_str()).unwrap())?;
+            .map(|res| Symbol::new(res.as_str()))?;
         let asset_class = row
             .try_get::<AssetClassModel, _>("asset_class")
             .map(|res| res.0)?;
@@ -564,8 +568,7 @@ impl<'r> FromRow<'r, PgRow> for FuturesContractModel {
             Some(margin_maint),
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(FuturesContractModel(inst))
     }
 }
@@ -583,7 +586,7 @@ impl<'r> FromRow<'r, PgRow> for OptionsContractModel {
             .map(|res| InstrumentId::from(res.as_str()))?;
         let raw_symbol = row
             .try_get::<String, _>("raw_symbol")
-            .map(|res| Symbol::new(res.as_str()).unwrap())?;
+            .map(|res| Symbol::new(res.as_str()))?;
         let asset_class = row
             .try_get::<AssetClassModel, _>("asset_class")
             .map(|res| res.0)?;
@@ -655,10 +658,10 @@ impl<'r> FromRow<'r, PgRow> for OptionsContractModel {
             exchange,
             underlying,
             option_kind,
-            activation_ns,
-            expiration_ns,
             strike_price,
             currency,
+            activation_ns,
+            expiration_ns,
             price_precision as u8,
             price_increment,
             multiplier,
@@ -671,8 +674,7 @@ impl<'r> FromRow<'r, PgRow> for OptionsContractModel {
             Some(margin_maint),
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(OptionsContractModel(inst))
     }
 }

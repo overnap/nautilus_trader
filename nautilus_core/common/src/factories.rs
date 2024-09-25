@@ -104,8 +104,9 @@ impl OrderFactory {
         exec_algorithm_id: Option<ExecAlgorithmId>,
         exec_algorithm_params: Option<HashMap<Ustr, Ustr>>,
         tags: Option<Vec<Ustr>>,
+        client_order_id: Option<ClientOrderId>,
     ) -> OrderAny {
-        let client_order_id = self.generate_client_order_id();
+        let client_order_id = client_order_id.unwrap_or_else(|| self.generate_client_order_id());
         let exec_spawn_id: Option<ClientOrderId> = if exec_algorithm_id.is_none() {
             None
         } else {
@@ -131,8 +132,7 @@ impl OrderFactory {
             exec_algorithm_params,
             exec_spawn_id,
             tags,
-        )
-        .unwrap();
+        );
         OrderAny::Market(order)
     }
 }
@@ -172,7 +172,7 @@ pub mod tests {
         let client_order_id = order_factory.generate_client_order_id();
         assert_eq!(
             client_order_id,
-            ClientOrderId::new("O-19700101-000000-001-001-1").unwrap()
+            ClientOrderId::new("O-19700101-000000-001-001-1")
         );
     }
 
@@ -181,7 +181,7 @@ pub mod tests {
         let order_list_id = order_factory.generate_order_list_id();
         assert_eq!(
             order_list_id,
-            OrderListId::new("OL-19700101-000000-001-001-1").unwrap()
+            OrderListId::new("OL-19700101-000000-001-001-1")
         );
     }
 
@@ -191,7 +191,7 @@ pub mod tests {
         let client_order_id = order_factory.generate_client_order_id();
         assert_eq!(
             client_order_id,
-            ClientOrderId::new("O-19700101-000000-001-001-11").unwrap()
+            ClientOrderId::new("O-19700101-000000-001-001-11")
         );
     }
 
@@ -201,7 +201,7 @@ pub mod tests {
         let order_list_id = order_factory.generate_order_list_id();
         assert_eq!(
             order_list_id,
-            OrderListId::new("OL-19700101-000000-001-001-11").unwrap()
+            OrderListId::new("OL-19700101-000000-001-001-11")
         );
     }
 
@@ -214,11 +214,11 @@ pub mod tests {
         let order_list_id = order_factory.generate_order_list_id();
         assert_eq!(
             client_order_id,
-            ClientOrderId::new("O-19700101-000000-001-001-1").unwrap()
+            ClientOrderId::new("O-19700101-000000-001-001-1")
         );
         assert_eq!(
             order_list_id,
-            OrderListId::new("OL-19700101-000000-001-001-1").unwrap()
+            OrderListId::new("OL-19700101-000000-001-001-1")
         );
     }
 
@@ -231,6 +231,7 @@ pub mod tests {
             Some(TimeInForce::Gtc),
             Some(false),
             Some(false),
+            None,
             None,
             None,
             None,
@@ -248,7 +249,7 @@ pub mod tests {
         // assert_eq!(market_order.tags, None);
         assert_eq!(
             market_order.client_order_id(),
-            ClientOrderId::new("O-19700101-000000-001-001-1").unwrap()
+            ClientOrderId::new("O-19700101-000000-001-001-1")
         );
         // assert_eq!(market_order.order_list_id(), None);
     }

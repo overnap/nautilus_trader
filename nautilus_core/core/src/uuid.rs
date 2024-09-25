@@ -44,10 +44,14 @@ pub struct UUID4 {
 
 impl UUID4 {
     /// Creates a new [`UUID4`] instance.
+    ///
+    /// Generates a new UUID version 4, which is based on random or pseudo-random numbers.
+    /// The UUID is stored as a fixed-length C string byte array.
     #[must_use]
     pub fn new() -> Self {
         let uuid = Uuid::new_v4();
-        let c_string = CString::new(uuid.to_string()).expect("`CString` conversion failed");
+        let c_string =
+            CString::new(uuid.to_string()).expect("Expected UUID to convert to valid `CString`");
         let bytes = c_string.as_bytes_with_nul();
         let mut value = [0; UUID4_LEN];
         value[..bytes.len()].copy_from_slice(bytes);
@@ -59,13 +63,17 @@ impl UUID4 {
     #[must_use]
     pub fn to_cstr(&self) -> &CStr {
         // SAFETY: We always store valid C strings
-        CStr::from_bytes_with_nul(&self.value).unwrap()
+        CStr::from_bytes_with_nul(&self.value)
+            .expect("Expected UUID byte representation to be a valid `CString`")
     }
 }
 
 impl FromStr for UUID4 {
     type Err = uuid::Error;
 
+    /// Attempts to create a UUID4 from a string representation.
+    ///
+    /// The string should be a valid UUID in the standard format (e.g., "6ba7b810-9dad-11d1-80b4-00c04fd430c8").
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let uuid = Uuid::try_parse(s)?;
         let c_string = CString::new(uuid.to_string()).expect("`CString` conversion failed");
@@ -78,13 +86,21 @@ impl FromStr for UUID4 {
 }
 
 impl From<&str> for UUID4 {
-    fn from(input: &str) -> Self {
-        input.parse().unwrap_or_else(|err| panic!("{}", err))
+    /// Creates a UUID4 from a string.
+    ///
+    /// # Panics
+    ///
+    /// This function panics:
+    /// - If the `value` string is not a valid UUID.
+    fn from(value: &str) -> Self {
+        value.parse().expect("`value` should be a valid UUID")
     }
 }
 
 impl Default for UUID4 {
     /// Creates a new default [`UUID4`] instance.
+    ///
+    /// The default UUID4 is simply a newly generated UUID version 4.
     fn default() -> Self {
         Self::new()
     }

@@ -13,7 +13,7 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 """
-Defines `Binance` common enums.
+Defines Binance common enums.
 
 References
 ----------
@@ -35,13 +35,36 @@ from nautilus_trader.model.enums import PriceType
 from nautilus_trader.model.enums import TimeInForce
 from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.enums import bar_aggregation_to_str
+from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.orders import Order
+
+
+@unique
+class BinanceKeyType(Enum):
+    """
+    Represents a Binance private key cryptographic algorithm type.
+    """
+
+    HMAC = "HMAC"
+    RSA = "RSA"
+    ED25519 = "Ed25519"
+
+
+@unique
+class BinanceFuturesPositionSide(Enum):
+    """
+    Represents a Binance Futures position side.
+    """
+
+    BOTH = "BOTH"
+    LONG = "LONG"
+    SHORT = "SHORT"
 
 
 @unique
 class BinanceRateLimitType(Enum):
     """
-    Represents a `Binance` rate limit type.
+    Represents a Binance rate limit type.
     """
 
     REQUEST_WEIGHT = "REQUEST_WEIGHT"
@@ -52,7 +75,7 @@ class BinanceRateLimitType(Enum):
 @unique
 class BinanceRateLimitInterval(Enum):
     """
-    Represents a `Binance` rate limit interval.
+    Represents a Binance rate limit interval.
     """
 
     SECOND = "SECOND"
@@ -63,7 +86,7 @@ class BinanceRateLimitInterval(Enum):
 @unique
 class BinanceKlineInterval(Enum):
     """
-    Represents a `Binance` kline chart interval.
+    Represents a Binance kline chart interval.
     """
 
     SECOND_1 = "1s"
@@ -87,7 +110,7 @@ class BinanceKlineInterval(Enum):
 @unique
 class BinanceExchangeFilterType(Enum):
     """
-    Represents a `Binance` exchange filter type.
+    Represents a Binance exchange filter type.
     """
 
     EXCHANGE_MAX_NUM_ORDERS = "EXCHANGE_MAX_NUM_ORDERS"
@@ -97,7 +120,7 @@ class BinanceExchangeFilterType(Enum):
 @unique
 class BinanceSymbolFilterType(Enum):
     """
-    Represents a `Binance` symbol filter type.
+    Represents a Binance symbol filter type.
     """
 
     PRICE_FILTER = "PRICE_FILTER"
@@ -118,7 +141,7 @@ class BinanceSymbolFilterType(Enum):
 @unique
 class BinanceAccountType(Enum):
     """
-    Represents a `Binance` account type.
+    Represents a Binance account type.
     """
 
     SPOT = "SPOT"
@@ -157,7 +180,7 @@ class BinanceAccountType(Enum):
 @unique
 class BinanceOrderSide(Enum):
     """
-    Represents a `Binance` order side.
+    Represents a Binance order side.
     """
 
     BUY = "BUY"
@@ -167,7 +190,7 @@ class BinanceOrderSide(Enum):
 @unique
 class BinanceExecutionType(Enum):
     """
-    Represents a `Binance` execution type.
+    Represents a Binance execution type.
     """
 
     NEW = "NEW"
@@ -183,7 +206,7 @@ class BinanceExecutionType(Enum):
 @unique
 class BinanceOrderStatus(Enum):
     """
-    Represents a `Binance` order status.
+    Represents a Binance order status.
     """
 
     NEW = "NEW"
@@ -201,7 +224,7 @@ class BinanceOrderStatus(Enum):
 @unique
 class BinanceTimeInForce(Enum):
     """
-    Represents a `Binance` order time in force.
+    Represents a Binance order time in force.
     """
 
     GTC = "GTC"
@@ -215,7 +238,7 @@ class BinanceTimeInForce(Enum):
 @unique
 class BinanceOrderType(Enum):
     """
-    Represents a `Binance` order type.
+    Represents a Binance order type.
     """
 
     LIMIT = "LIMIT"
@@ -235,7 +258,7 @@ class BinanceOrderType(Enum):
 @unique
 class BinanceSecurityType(Enum):
     """
-    Represents a `Binance` endpoint security type.
+    Represents a Binance endpoint security type.
     """
 
     NONE = "NONE"
@@ -249,7 +272,7 @@ class BinanceSecurityType(Enum):
 @unique
 class BinanceNewOrderRespType(Enum):
     """
-    Represents a `Binance` newOrderRespType.
+    Represents a Binance newOrderRespType.
     """
 
     ACK = "ACK"
@@ -260,7 +283,7 @@ class BinanceNewOrderRespType(Enum):
 @unique
 class BinanceErrorCode(Enum):
     """
-    Represents a `Binance` error code (covers futures).
+    Represents a Binance error code (covers futures).
     """
 
     UNKNOWN = -1000
@@ -596,3 +619,18 @@ class BinanceEnumParser:
         raise NotImplementedError(  # pragma: no cover (design-time error)
             "Cannot parse binance trigger type (not implemented).",  # pragma: no cover
         )
+
+    def parse_position_id_to_binance_futures_position_side(
+        self,
+        position_id: PositionId,
+    ) -> BinanceFuturesPositionSide:
+        if position_id.value.endswith("LONG"):  # Position Long
+            return BinanceFuturesPositionSide.LONG
+        elif position_id.value.endswith("SHORT"):  # Position Short
+            return BinanceFuturesPositionSide.SHORT
+        elif position_id.value.endswith("BOTH"):
+            return BinanceFuturesPositionSide.BOTH
+        else:
+            raise RuntimeError(  # pragma: no cover (design-time error)
+                f"unrecognized position id, was {position_id}",  # pragma: no cover
+            )
