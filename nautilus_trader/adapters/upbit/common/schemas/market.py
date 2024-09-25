@@ -333,6 +333,34 @@ class UpbitWebSocketTicker(msgspec.Struct):
     timestamp: int  # 타임스탬프 (millisecond)
     stream_type: str  # 스트림 타입 (SNAPSHOT : 스냅샷, REALTIME : 실시간)
 
+    def parse_to_upbit_ticker(
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
+    ) -> UpbitTicker:
+        return UpbitTicker(
+            instrument_id=instrument_id,
+            price_change=Decimal(self.signed_change_price),
+            price_change_percent=Decimal(self.signed_change_rate),
+            prev_close_price=(
+                Decimal(self.prev_closing_price) if self.prev_closing_price is not None else None
+            ),
+            last_price=Decimal(self.trade_price),
+            last_qty=Decimal(self.trade_volume),
+            open_price=Decimal(self.opening_price),
+            high_price=Decimal(self.high_price),
+            low_price=Decimal(self.low_price),
+            volume=Decimal(self.acc_trade_volume),
+            quote_volume=Decimal(self.trade_price),
+            open_time_ms=self.O,
+            close_time_ms=self.C,
+            first_id=self.F,
+            last_id=self.L,
+            count=self.n,
+            ts_event=millis_to_nanos(self.E),
+            ts_init=ts_init,
+        )
+
 
 class UpbitWebSocketTrade(msgspec.Struct):
     """

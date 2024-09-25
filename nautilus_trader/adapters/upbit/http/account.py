@@ -68,7 +68,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
 
     def __init__(
         self,
-        client: BinanceHttpClient,
+        client: UpbitHttpClient,
         base_endpoint: str,
         testing_endpoint: bool | None = False,
     ):
@@ -114,7 +114,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
 
         """
 
-        symbol: BinanceSymbol
+        symbol: UpbitSymbol
         timestamp: str
         orderId: int | None = None
         origClientOrderId: str | None = None

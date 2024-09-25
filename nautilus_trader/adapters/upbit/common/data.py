@@ -20,7 +20,7 @@ from decimal import Decimal
 import msgspec
 import pandas as pd
 
-from nautilus_trader.adapters.binance.common.constants import BINANCE_VENUE
+from nautilus_trader.adapters.upbit.common.constants import UPBIT_VENUE
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceErrorCode
@@ -29,15 +29,13 @@ from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketM
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketOrderbook
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketTicker
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketTrade
-from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
-from nautilus_trader.adapters.binance.common.types import BinanceBar
 from nautilus_trader.adapters.binance.common.types import BinanceTicker
 from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
-from nautilus_trader.adapters.binance.futures.types import BinanceFuturesMarkPriceUpdate
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.http.error import BinanceError
 from nautilus_trader.adapters.upbit.common.enums import UpbitCandleInterval
-from nautilus_trader.adapters.upbit.common.types import UpbitBar
+from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
+from nautilus_trader.adapters.upbit.common.types import UpbitBar, UpbitTicker
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
 from nautilus_trader.adapters.upbit.websocket.client import UpbitWebSocketClient
@@ -119,20 +117,18 @@ class UpbitDataClient(LiveMarketDataClient):
         loop: asyncio.AbstractEventLoop,
         client: UpbitHttpClient,
         market: UpbitMarketHttpAPI,
-        enum_parser: BinanceEnumParser,
+        enum_parser: BinanceEnumParser, # TODO: 교체하기..
         msgbus: MessageBus,
         cache: Cache,
         clock: LiveClock,
         instrument_provider: InstrumentProvider,
-        account_type: BinanceAccountType,
         url_ws: str,
         name: str | None,
-        config: BinanceDataClientConfig,
     ) -> None:
         super().__init__(
             loop=loop,
-            client_id=ClientId(name or BINANCE_VENUE.value),  # TODO: 수정
-            venue=Venue(name or BINANCE_VENUE.value),
+            client_id=ClientId(name or UPBIT_VENUE.value),  # TODO: 수정
+            venue=Venue(name or UPBIT_VENUE.value),
             msgbus=msgbus,
             cache=cache,
             clock=clock,
@@ -178,13 +174,11 @@ class UpbitDataClient(LiveMarketDataClient):
         self._ws_handlers = {
             "ticker": self._handle_ticker,
             "trade": self._handle_trade,
-            "orderbook": self._handle_orderbook,
             "order": self._handle_trade,
-            "asset": self._handle_asset,
         }
 
         # WebSocket msgspec decoders
-        self._decoder_type_msg = msgspec.json.Decoder(UpbitWebsocketMsg)
+        self._decoder_type_msg = msgspec.json.Decoder(UpbitWebSocketMsg)
         self._decoder_order_book_msg = msgspec.json.Decoder(UpbitWebSocketOrderbook)
         self._decoder_ticker_msg = msgspec.json.Decoder(UpbitWebSocketTicker)
         self._decoder_trade_msg = msgspec.json.Decoder(UpbitWebSocketTrade)
@@ -273,16 +267,8 @@ class UpbitDataClient(LiveMarketDataClient):
             )
             return
 
-        if data_type.type == BinanceTicker:
+        if data_type.type == BinanceTicker: # TODO: usage 확인 필요. 이거만 구독 가능할리가?
             await self._ws_client.subscribe_ticker(instrument_id.symbol.value)
-        elif data_type.type == BinanceFuturesMarkPriceUpdate:
-            if not self._binance_account_type.is_futures:
-                self._log.error(
-                    f"Cannot subscribe to `BinanceFuturesMarkPriceUpdate` "
-                    f"for {self._binance_account_type.value} account types",
-                )
-                return
-            await self._ws_client.subscribe_mark_price(instrument_id.symbol.value, speed=1000)
         else:
             self._log.error(
                 f"Cannot subscribe to {data_type.type} (not implemented)",
@@ -292,19 +278,12 @@ class UpbitDataClient(LiveMarketDataClient):
         instrument_id: InstrumentId | None = data_type.metadata.get("instrument_id")
         if instrument_id is None:
             self._log.error(
-                "Cannot subscribe to `BinanceFuturesMarkPriceUpdate` no instrument ID in `data_type` metadata",
+                f"Cannot subscribe to `{data_type.type}` no instrument ID in `data_type` metadata",
             )
             return
 
         if data_type.type == BinanceTicker:
-            await self._ws_client.unsubscribe_ticker(instrument_id.symbol.value)
-        elif data_type.type == BinanceFuturesMarkPriceUpdate:
-            if not self._binance_account_type.is_futures:
-                self._log.error(
-                    "Cannot unsubscribe from `BinanceFuturesMarkPriceUpdate` "
-                    f"for {self._binance_account_type.value} account types",
-                )
-                return
+            await self._ws_client.unsubscribe_ticker(instrument_id.symbol.value) # TODO: 마찬가지로 usage 확인 필요.
         else:
             self._log.error(
                 f"Cannot unsubscribe from {data_type.type} (not implemented)",
@@ -350,6 +329,7 @@ class UpbitDataClient(LiveMarketDataClient):
             depth=depth,
         )
 
+    # TODO: 해석 필요
     async def _subscribe_order_book(  # (too complex)
         self,
         instrument_id: InstrumentId,
@@ -437,41 +417,13 @@ class UpbitDataClient(LiveMarketDataClient):
         )
 
     async def _subscribe_quote_ticks(self, instrument_id: InstrumentId) -> None:
-        await self._ws_client.subscribe_book_ticker(instrument_id.symbol.value)
+        await self._ws_client.subscribe_ticker(instrument_id.symbol.value)
 
     async def _subscribe_trade_ticks(self, instrument_id: InstrumentId) -> None:
-        if self._use_agg_trade_ticks:
-            await self._ws_client.subscribe_agg_trades(instrument_id.symbol.value)
-        else:
-            await self._ws_client.subscribe_trades(instrument_id.symbol.value)
+         await self._ws_client.subscribe_trades(instrument_id.symbol.value)
 
     async def _subscribe_bars(self, bar_type: BarType) -> None:
-        PyCondition.true(bar_type.is_externally_aggregated(), "aggregation_source is not EXTERNAL")
-
-        if not bar_type.spec.is_time_aggregated():
-            self._log.error(
-                f"Cannot subscribe to {bar_type}: only time bars are aggregated by Binance",
-            )
-            return
-
-        resolution = self._enum_parser.parse_nautilus_bar_aggregation(bar_type.spec.aggregation)
-        if self._binance_account_type.is_futures and resolution == "s":
-            self._log.error(
-                f"Cannot subscribe to {bar_type}. "
-                "Second interval bars are not aggregated by Binance Futures",
-            )
-        try:
-            interval = BinanceKlineInterval(f"{bar_type.spec.step}{resolution}")
-        except ValueError:
-            self._log.error(
-                f"Bar interval {bar_type.spec.step}{resolution} not supported by Binance",
-            )
-            return
-
-        await self._ws_client.subscribe_bars(
-            symbol=bar_type.instrument_id.symbol.value,
-            interval=interval.value,
-        )
+        self._log.warning("Upbit doesn't support bar subscription", LogColor.BLUE)
 
     async def _unsubscribe_instruments(self) -> None:
         pass  # Do nothing further
@@ -486,36 +438,13 @@ class UpbitDataClient(LiveMarketDataClient):
         pass  # TODO: Unsubscribe from Binance if no other subscriptions
 
     async def _unsubscribe_quote_ticks(self, instrument_id: InstrumentId) -> None:
-        await self._ws_client.unsubscribe_book_ticker(instrument_id.symbol.value)
+        await self._ws_client.unsubscribe_ticker(instrument_id.symbol.value)
 
     async def _unsubscribe_trade_ticks(self, instrument_id: InstrumentId) -> None:
         await self._ws_client.unsubscribe_trades(instrument_id.symbol.value)
 
     async def _unsubscribe_bars(self, bar_type: BarType) -> None:
-        if not bar_type.spec.is_time_aggregated():
-            self._log.error(
-                f"Cannot unsubscribe from {bar_type}: only time bars are aggregated by Binance",
-            )
-            return
-
-        resolution = self._enum_parser.parse_nautilus_bar_aggregation(bar_type.spec.aggregation)
-        if self._binance_account_type.is_futures and resolution == "s":
-            self._log.error(
-                f"Cannot unsubscribe from {bar_type}. "
-                "Second interval bars are not aggregated by Binance Futures",
-            )
-        try:
-            interval = BinanceKlineInterval(f"{bar_type.spec.step}{resolution}")
-        except ValueError:
-            self._log.error(
-                f"Bar interval {bar_type.spec.step}{resolution} not supported by Binance",
-            )
-            return
-
-        await self._ws_client.unsubscribe_bars(
-            symbol=bar_type.instrument_id.symbol.value,
-            interval=interval.value,
-        )
+        self._log.warning("Upbit doesn't support bar subscription")
 
     # -- REQUESTS ---------------------------------------------------------------------------------
 
@@ -561,7 +490,7 @@ class UpbitDataClient(LiveMarketDataClient):
         end: pd.Timestamp | None = None,
     ) -> None:
         self._log.error(
-            "Cannot request historical quote ticks: not published by Binance",
+            "Cannot request historical quote ticks: not published by Upbit",
         )
 
     async def _request_trade_ticks(
@@ -575,33 +504,17 @@ class UpbitDataClient(LiveMarketDataClient):
         if limit == 0 or limit > 1000:
             limit = 1000
 
-        if not self._use_agg_trade_ticks:
-            if start is not None or end is not None:
-                self._log.warning(
-                    "Trade ticks have been requested with a from/to time range, "
-                    f"however the request will be for the most recent {limit}. "
-                    "Consider using aggregated trade ticks (`use_agg_trade_ticks`)",
-                )
-            ticks = await self._http_market.request_trade_ticks(
-                instrument_id=instrument_id,
-                limit=limit,
-                ts_init=self._clock.timestamp_ns(),
+        if start is not None or end is not None:
+            self._log.warning(
+                "Trade ticks have been requested with a from/to time range, "
+                f"however the request will be for the most recent {limit}. "
+                "Consider using aggregated trade ticks (`use_agg_trade_ticks`)",
             )
-        else:
-            # Convert from timestamps to milliseconds
-            start_time_ms = None
-            end_time_ms = None
-            if start:
-                start_time_ms = int(start.timestamp() * 1000)
-            if end:
-                end_time_ms = int(end.timestamp() * 1000)
-            ticks = await self._http_market.request_agg_trade_ticks(
-                instrument_id=instrument_id,
-                limit=limit,
-                start_time=start_time_ms,
-                end_time=end_time_ms,
-                ts_init=self._clock.timestamp_ns(),
-            )
+        ticks = await self._http_market.request_trade_ticks(
+            instrument_id=instrument_id,
+            ts_init=self._clock.timestamp_ns(),
+            count=limit,
+        )
 
         self._handle_trade_ticks(instrument_id, ticks, correlation_id)
 
@@ -634,7 +547,7 @@ class UpbitDataClient(LiveMarketDataClient):
         if bar_type.is_externally_aggregated() or bar_type.spec.is_time_aggregated():
             if not bar_type.spec.is_time_aggregated():
                 self._log.error(
-                    f"Cannot request {bar_type}: only time bars are aggregated by Binance",
+                    f"Cannot request {bar_type}: only time bars are aggregated by Upbit",
                 )
                 return
 
@@ -677,7 +590,7 @@ class UpbitDataClient(LiveMarketDataClient):
         partial: Bar = bars.pop()
         self._handle_bars(bar_type, bars, partial, correlation_id)
 
-    async def _request_order_book_snapshot(
+    async def _request_order_book_snapshot( # TODO: 수정 필요
         self,
         instrument_id: InstrumentId,
         limit: int,
@@ -710,7 +623,7 @@ class UpbitDataClient(LiveMarketDataClient):
                 correlation_id=correlation_id,
             )
 
-    async def _aggregate_internal_from_minute_bars(
+    async def _aggregate_internal_from_minute_bars( # TODO: 수정 필요
         self,
         bar_type: BarType,
         start_time_ms: int | None,
@@ -786,7 +699,7 @@ class UpbitDataClient(LiveMarketDataClient):
             bars = bars[:count]
         return bars
 
-    def _aggregate_bar_to_trade_ticks(
+    def _aggregate_bar_to_trade_ticks( # TODO: 수정 필요
         self,
         instrument: Instrument,
         aggregator: BarAggregator,
@@ -856,10 +769,8 @@ class UpbitDataClient(LiveMarketDataClient):
 
     def _get_cached_instrument_id(self, symbol: str) -> InstrumentId:
         # Parse instrument ID
-        binance_symbol = BinanceSymbol(symbol)
-        nautilus_symbol: str = binance_symbol.parse_as_nautilus(
-            self._binance_account_type,
-        )
+        upbit_symbol = UpbitSymbol(symbol)
+        nautilus_symbol: str = upbit_symbol.parse_as_nautilus()
         instrument_id: InstrumentId | None = self._instrument_ids.get(nautilus_symbol)
         if not instrument_id:
             instrument_id = InstrumentId(Symbol(nautilus_symbol), self.venue)
@@ -890,13 +801,13 @@ class UpbitDataClient(LiveMarketDataClient):
 
     def _handle_ticker(self, raw: bytes) -> None:
         msg = self._decoder_ticker_msg.decode(raw)
-        instrument_id: InstrumentId = self._get_cached_instrument_id(msg.data.s)
-        ticker: BinanceTicker = msg.data.parse_to_binance_ticker(
+        instrument_id: InstrumentId = self._get_cached_instrument_id(msg.code)
+        ticker: UpbitTicker = msg.parse_to_upbit_ticker(
             instrument_id=instrument_id,
             ts_init=self._clock.timestamp_ns(),
         )
         data_type = DataType(
-            BinanceTicker,
+            UpbitTicker,
             metadata={"instrument_id": instrument_id},
         )
         custom = CustomData(data_type=data_type, data=ticker)

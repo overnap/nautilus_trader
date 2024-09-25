@@ -19,7 +19,8 @@ from typing import Final
 from nautilus_trader.model.identifiers import Venue
 
 
-BINANCE_VENUE: Final[Venue] = Venue("BINANCE")
+UPBIT_VENUE: Final[Venue] = Venue("UPBIT")
 
-BINANCE_MIN_CALLBACK_RATE: Final[Decimal] = Decimal("0.1")
-BINANCE_MAX_CALLBACK_RATE: Final[Decimal] = Decimal("10.0")
+# TODO: 무슨 용도인지 확인 필요
+UPBIT_MIN_CALLBACK_RATE: Final[Decimal] = Decimal("0.1")
+UPBIT_MAX_CALLBACK_RATE: Final[Decimal] = Decimal("10.0")
