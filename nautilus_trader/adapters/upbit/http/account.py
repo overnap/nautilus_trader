@@ -517,30 +517,18 @@ class BinanceAccountHttpAPI:
 
     def __init__(
         self,
-        client: BinanceHttpClient,
+        client: UpbitHttpClient,
         clock: LiveClock,
-        account_type: BinanceAccountType,
     ):
         PyCondition.not_none(client, "client")
         self.client = client
         self._clock = clock
 
-        if account_type.is_spot_or_margin:
-            self.base_endpoint = "/api/v3/"
-            user_trades_url = self.base_endpoint + "myTrades"
-        elif account_type == BinanceAccountType.USDT_FUTURE:
-            self.base_endpoint = "/fapi/v1/"
-            user_trades_url = self.base_endpoint + "userTrades"
-        elif account_type == BinanceAccountType.COIN_FUTURE:
-            self.base_endpoint = "/dapi/v1/"
-            user_trades_url = self.base_endpoint + "userTrades"
-        else:
-            raise RuntimeError(  # pragma: no cover (design-time error)
-                f"invalid `BinanceAccountType`, was {account_type}",  # pragma: no cover
-            )
+        self.base_endpoint = "/api/v3/"
+        user_trades_url = self.base_endpoint + "myTrades"
 
         # Create endpoints
-        self._endpoint_order = BinanceOrderHttp(client, self.base_endpoint)
+        self._endpoint_order = UpbitOrderHttp(client, self.base_endpoint)
         self._endpoint_all_orders = BinanceAllOrdersHttp(client, self.base_endpoint)
         self._endpoint_open_orders = BinanceOpenOrdersHttp(client, self.base_endpoint)
         self._endpoint_user_trades = BinanceUserTradesHttp(client, user_trades_url)

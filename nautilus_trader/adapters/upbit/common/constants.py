@@ -24,3 +24,5 @@ UPBIT_VENUE: Final[Venue] = Venue("UPBIT")
 # TODO: 무슨 용도인지 확인 필요
 UPBIT_MIN_CALLBACK_RATE: Final[Decimal] = Decimal("0.1")
 UPBIT_MAX_CALLBACK_RATE: Final[Decimal] = Decimal("10.0")
+
+UPBIT_MAX_CANDLE_COUNT: int = 200

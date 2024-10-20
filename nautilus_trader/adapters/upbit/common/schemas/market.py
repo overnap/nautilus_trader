@@ -16,6 +16,8 @@
 from decimal import Decimal
 
 import msgspec
+import pandas as pd
+from nautilus_trader.core.nautilus_pyo3.model import CurrencyType
 
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceExchangeFilterType
@@ -26,7 +28,7 @@ from nautilus_trader.adapters.binance.common.enums import BinanceSymbolFilterTyp
 from nautilus_trader.adapters.binance.common.types import BinanceBar
 from nautilus_trader.adapters.binance.common.types import BinanceTicker
 from nautilus_trader.adapters.upbit.common.types import UpbitBar
-from nautilus_trader.core.datetime import millis_to_nanos
+from nautilus_trader.core.datetime import millis_to_nanos, dt_to_unix_nanos
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import BookOrder
 from nautilus_trader.model.data import OrderBookDelta
@@ -39,7 +41,7 @@ from nautilus_trader.model.enums import BookAction
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import TradeId
-from nautilus_trader.model.objects import Price
+from nautilus_trader.model.objects import Price, Currency
 from nautilus_trader.model.objects import Quantity
 
 
@@ -125,10 +127,10 @@ class UpbitTrade(msgspec.Struct, frozen=True):
     trade_date_utc: str
     trade_time_utc: str
     timestamp: int
-    trade_price: str
-    trade_volume: str
-    prev_closing_price: str
-    change_price: str
+    trade_price: float
+    trade_volume: float
+    prev_closing_price: float
+    change_price: float
     ask_bid: str
     sequential_id: int
 
@@ -143,8 +145,8 @@ class UpbitTrade(msgspec.Struct, frozen=True):
         # TODO: market이랑 instrument 비교?
         return TradeTick(
             instrument_id=instrument_id,
-            price=Price.from_str(self.trade_price),
-            size=Quantity.from_str(self.trade_volume),
+            price=Price.from_str(str(self.trade_price)),
+            size=Quantity.from_str(str(self.trade_volume)),
             aggressor_side=AggressorSide.BUYER if self.ask_bid == "ASK" else AggressorSide.SELLER,
             trade_id=TradeId(str(self.sequential_id)),
             ts_event=millis_to_nanos(self.timestamp),
@@ -160,18 +162,18 @@ class UpbitCandle(msgspec.Struct, frozen=True):
     market: str
     candle_date_time_utc: str
     candle_date_time_kst: str
-    opening_price: str
-    high_price: str
-    low_price: str
-    trade_price: str  # closing price
+    opening_price: float
+    high_price: float
+    low_price: float
+    trade_price: float  # closing price
     timestamp: int
-    candle_acc_trade_price: str
-    candle_acc_trade_volume: str
+    candle_acc_trade_price: float
+    candle_acc_trade_volume: float
     unit: int | None = None  # Minute candle only
-    prev_closing_price: str | None = None  # Day candle only
-    change_price: str | None = None  # Day candle only
+    prev_closing_price: float | None = None  # Day candle only
+    change_price: float | None = None  # Day candle only
     change_rate: str | None = None  # Day candle only
-    converted_trade_price: str | None = (
+    converted_trade_price: float | None = (
         None  # Day candle only, request with `convertingPriceUnit` exclusively
     )
     first_day_of_period: str | None = None  # Week and Month candle only
@@ -186,14 +188,14 @@ class UpbitCandle(msgspec.Struct, frozen=True):
         """
         return UpbitBar(
             bar_type=bar_type,
-            open=Price.from_str(self.opening_price),
-            high=Price.from_str(self.high_price),
-            low=Price.from_str(self.low_price),
-            close=Price.from_str(self.trade_price),
-            volume=Quantity.from_str(self.candle_acc_trade_volume),
-            quote_volume=Decimal(self.candle_acc_trade_price),
-            ts_event=millis_to_nanos(
-                self.candle_date_time_utc
+            open=Price.from_str(str(self.opening_price)),
+            high=Price.from_str(str(self.high_price)),
+            low=Price.from_str(str(self.low_price)),
+            close=Price.from_str(str(self.trade_price)),
+            volume=Quantity.from_str(str(self.candle_acc_trade_volume)),
+            quote_volume=Decimal(str(self.candle_acc_trade_price)),
+            ts_event=dt_to_unix_nanos(
+                pd.to_datetime(self.candle_date_time_utc, format="ISO8601")
             ),  # TODO: 봉 완성 시간인거 확인 했으나 한번더 확인 필요
             ts_init=ts_init,
         )
@@ -211,24 +213,24 @@ class UpbitTicker(msgspec.Struct, frozen=True):
     trade_date_kst: str
     trade_time_kst: str
     trade_timestamp: int
-    opening_price: str
-    high_price: str
-    low_price: str
-    trade_price: str  # closing price
-    prev_closing_price: str  # Criteria for `*change*` fields
+    opening_price: float
+    high_price: float
+    low_price: float
+    trade_price: float  # closing price
+    prev_closing_price: float  # Criteria for `*change*` fields
     change: str  # EVEN | RISE | FALL
-    change_price: str
-    change_rate: str
-    signed_change_price: str
-    signed_change_rate: str
-    trade_volume: str
-    acc_trade_price: str  # From UTC 0h
-    acc_trade_price_24h: str
-    acc_trade_volume: str  # From UTC 0h
-    acc_trade_volume_24h: str
-    highest_52_week_price: str
+    change_price: float
+    change_rate: float
+    signed_change_price: float
+    signed_change_rate: float
+    trade_volume: float
+    acc_trade_price: float  # From UTC 0h
+    acc_trade_price_24h: float
+    acc_trade_volume: float  # From UTC 0h
+    acc_trade_volume_24h: float
+    highest_52_week_price: float
     highest_52_week_date: str
-    lowest_52_week_price: str
+    lowest_52_week_price: float
     lowest_52_week_date: str
     timestamp: int
 
@@ -238,10 +240,10 @@ class UpbitOrderbookUnit(msgspec.Struct, frozen=True):
     Schema for individual unit of Upbit orderbook. (HTTP)
     """
 
-    ask_price: str
-    bid_price: str
-    ask_size: str
-    bid_size: str
+    ask_price: float
+    bid_price: float
+    ask_size: float
+    bid_size: float
 
 
 class UpbitOrderbook(msgspec.Struct, frozen=True):
@@ -251,10 +253,10 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
 
     market: str
     timestamp: int
-    total_ask_size: str
-    total_bid_size: str
+    total_ask_size: float
+    total_bid_size: float
     orderbook_units: list[UpbitOrderbookUnit]
-    level: str
+    level: int
 
     def parse_to_order_book_snapshot(
         self,
@@ -300,30 +302,30 @@ class UpbitWebSocketTicker(msgspec.Struct):
 
     type: str  # 타입 (ticker : 현재가)
     code: str  # 마켓 코드 (ex. KRW-BTC)
-    opening_price: str  # 시가
-    high_price: str  # 고가
-    low_price: str  # 저가
-    trade_price: str  # 현재가
-    prev_closing_price: str  # 전일 종가
+    opening_price: float  # 시가
+    high_price: float  # 고가
+    low_price: float  # 저가
+    trade_price: float  # 현재가
+    prev_closing_price: float  # 전일 종가
     change: str  # 전일 대비 (RISE : 상승, EVEN : 보합, FALL : 하락)
-    change_price: str  # 부호 없는 전일 대비 값
-    signed_change_price: str  # 전일 대비 값
+    change_price: float  # 부호 없는 전일 대비 값
+    signed_change_price: float  # 전일 대비 값
     change_rate: str  # 부호 없는 전일 대비 등락율
     signed_change_rate: str  # 전일 대비 등락율
-    trade_volume: str  # 가장 최근 거래량
-    acc_trade_volume: str  # 누적 거래량 (UTC 0시 기준)
+    trade_volume: float  # 가장 최근 거래량
+    acc_trade_volume: float  # 누적 거래량 (UTC 0시 기준)
     acc_trade_volume_24h: str  # 24시간 누적 거래량
-    acc_trade_price: str  # 누적 거래대금 (UTC 0시 기준)
+    acc_trade_price: float  # 누적 거래대금 (UTC 0시 기준)
     acc_trade_price_24h: str  # 24시간 누적 거래대금
     trade_date: str  # 최근 거래 일자 (UTC) (yyyyMMdd)
     trade_time: str  # 최근 거래 시각 (UTC) (HHmmss)
     trade_timestamp: int  # 체결 타임스탬프 (milliseconds)
     ask_bid: str  # 매수/매도 구분 (ASK : 매도, BID : 매수)
-    acc_ask_volume: str  # 누적 매도량
-    acc_bid_volume: str  # 누적 매수량
-    highest_52_week_price: str  # 52주 최고가
+    acc_ask_volume: float  # 누적 매도량
+    acc_bid_volume: float  # 누적 매수량
+    highest_52_week_price: float  # 52주 최고가
     highest_52_week_date: str  # 52주 최고가 달성일 (yyyy-MM-dd)
-    lowest_52_week_price: str  # 52주 최저가
+    lowest_52_week_price: float  # 52주 최저가
     lowest_52_week_date: str  # 52주 최저가 달성일 (yyyy-MM-dd)
     market_state: (
         str  # 거래상태 (PREVIEW : 입금지원, ACTIVE : 거래지원가능, DELISTED : 거래지원종료)
@@ -369,12 +371,12 @@ class UpbitWebSocketTrade(msgspec.Struct):
 
     type: str  # 타입
     code: str  # 마켓 코드 (ex. KRW-BTC)
-    trade_price: str  # 체결 가격
-    trade_volume: str  # 체결량
+    trade_price: float  # 체결 가격
+    trade_volume: float  # 체결량
     ask_bid: str  # 매수/매도 구분
-    prev_closing_price: str  # 전일 종가
+    prev_closing_price: float  # 전일 종가
     change: str  # 전일 대비
-    change_price: str  # 부호 없는 전일 대비 값
+    change_price: float  # 부호 없는 전일 대비 값
     trade_date: str  # 체결 일자 (UTC 기준)
     trade_time: str  # 체결 시각 (UTC 기준)
     trade_timestamp: int  # 체결 타임스탬프 (millisecond)
@@ -450,10 +452,10 @@ class UpbitWebSocketOrder(msgspec.Struct):
     state: str  # 주문 상태 (wait: 체결 대기, watch: 예약 대기, trade: 체결 발생, done: 완료, cancel: 취소)
     trade_uuid: str  # 체결의 고유 아이디
     price: str  # 주문 가격 또는 체결 가격 (state가 trade일 때)
-    avg_price: str  # 평균 체결 가격
+    avg_price: float  # 평균 체결 가격
     volume: str  # 주문량 또는 체결량 (state가 trade일 때)
-    remaining_volume: str  # 체결 후 남은 주문 양
-    executed_volume: str  # 체결된 양
+    remaining_volume: float  # 체결 후 남은 주문 양
+    executed_volume: float  # 체결된 양
     trades_count: int  # 해당 주문에 걸린 체결 수
     reserved_fee: str  # 수수료로 예약된 비용
     remaining_fee: str  # 남은 수수료
@@ -870,3 +872,28 @@ class BinanceCandlestickMsg(msgspec.Struct, frozen=True):
 
     stream: str
     data: BinanceCandlestickData
+
+
+class UpbitCodeInfo(msgspec.Struct, frozen=True):
+
+    market: str
+    korean_name: str
+    english_name: str
+
+    # def parse_to_base_asset(self):
+    #     return Currency(
+    #         code=self.baseAsset,
+    #         precision=self.baseAssetPrecision,
+    #         iso4217=0,  # Currently unspecified for crypto assets
+    #         name=self.baseAsset,
+    #         currency_type=CurrencyType.CRYPTO,
+    #     )
+
+    # def parse_to_quote_asset(self):
+    #     return Currency(
+    #         code=self.quoteAsset,
+    #         precision=self.quoteAssetPrecision,
+    #         iso4217=0,  # Currently unspecified for crypto assets
+    #         name=self.quoteAsset,
+    #         currency_type=CurrencyType.CRYPTO,
+    #     )

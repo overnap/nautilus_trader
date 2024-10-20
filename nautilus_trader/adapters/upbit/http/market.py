@@ -12,16 +12,19 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-
+import asyncio
 import sys
 import time
 
 import msgspec
+from nautilus_trader.core.nautilus_pyo3.model import AggregationSource
 
+from nautilus_trader.adapters.upbit.common.constants import UPBIT_MAX_CANDLE_COUNT
+from nautilus_trader.adapters.upbit.common.credentials import get_api_key, get_api_secret
 from nautilus_trader.adapters.upbit.common.enums import UpbitCandleInterval
 from nautilus_trader.adapters.upbit.common.enums import UpbitSecurityType
 from nautilus_trader.adapters.upbit.common.enums import UpbitOrderbookLevel
-from nautilus_trader.adapters.upbit.common.schemas.market import UpbitOrderbook
+from nautilus_trader.adapters.upbit.common.schemas.market import UpbitOrderbook, UpbitCodeInfo
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitCandle
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitTicker
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitTrade
@@ -32,14 +35,16 @@ from nautilus_trader.adapters.upbit.common.types import UpbitBar
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.adapters.upbit.http.endpoint import UpbitHttpEndpoint
 from nautilus_trader.core.correctness import PyCondition
+
+from nautilus_trader.common.component import LiveClock
 from nautilus_trader.core.datetime import millis_to_nanos
 from nautilus_trader.core.datetime import nanos_to_millis
 from nautilus_trader.core.datetime import unix_nanos_to_dt
-from nautilus_trader.core.nautilus_pyo3 import HttpMethod
-from nautilus_trader.model.data import BarType
+from nautilus_trader.core.nautilus_pyo3 import HttpMethod, PriceType, unix_nanos_to_iso8601
+from nautilus_trader.model.data import BarType, BarSpecification, BarAggregation
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import TradeTick
-from nautilus_trader.model.identifiers import InstrumentId
+from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
 
 
 class UpbitTradesHttp(UpbitHttpEndpoint):
@@ -259,7 +264,7 @@ class UpbitOrderbookHttp(UpbitHttpEndpoint):
             methods,
             url_path,
         )
-        self._get_resp_decoder = msgspec.json.Decoder([UpbitOrderbook])
+        self._get_resp_decoder = msgspec.json.Decoder(list[UpbitOrderbook])
 
     class GetParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         """
@@ -268,16 +273,51 @@ class UpbitOrderbookHttp(UpbitHttpEndpoint):
         Parameters
         ----------
         markets: UpbitSymbols
-        level: UpbitOrderbookLevel | None
+        level: UpbitOrderbookLevel
 
         """
 
         markets: UpbitSymbols
-        level: UpbitOrderbookLevel | None
+        level: UpbitOrderbookLevel
 
     async def get(self, params: GetParameters) -> list[UpbitOrderbook]:
         method_type = HttpMethod.GET
+
         raw = await self._method(method_type, params)
+        return self._get_resp_decoder.decode(raw)
+
+
+class UpbitCodeInfoHttp(UpbitHttpEndpoint):
+    """
+    Endpoint of SPOT/MARGIN exchange trading rules and symbol information.
+
+    `GET /api/v3/exchangeInfo`
+
+    References
+    ----------
+    https://binance-docs.github.io/apidocs/spot/en/#exchange-information
+
+    """
+
+    def __init__(
+        self,
+        client: UpbitHttpClient,
+        base_endpoint: str,
+    ):
+        methods = {
+            HttpMethod.GET: UpbitSecurityType.NONE,
+        }
+        url_path = base_endpoint + "market/all"
+        super().__init__(
+            client,
+            methods,
+            url_path,
+        )
+        self._get_resp_decoder = msgspec.json.Decoder(list[UpbitCodeInfo])
+
+    async def get(self) -> list[UpbitCodeInfo]:
+        method_type = HttpMethod.GET
+        raw = await self._method(method_type, params=None)
         return self._get_resp_decoder.decode(raw)
 
 
@@ -311,11 +351,23 @@ class UpbitMarketHttpAPI:
         self._endpoint_candles = UpbitCandlesHttp(client, self.base_endpoint)
         self._endpoint_ticker = UpbitTickerHttp(client, self.base_endpoint)
         self._endpoint_orderbook = UpbitOrderbookHttp(client, self.base_endpoint)
+        self._endpoint_code_info = UpbitCodeInfoHttp(client, self.base_endpoint)
+
+    async def query_ticker(
+        self,
+        symbols: list[str],
+    ) -> list[UpbitTicker]:
+        """
+        Query order book
+        """
+        return await self._endpoint_ticker.get(
+            params=self._endpoint_ticker.GetParameters(markets=UpbitSymbols(symbols)),
+        )
 
     async def query_orderbook(
         self,
         symbols: list[str],
-        level: UpbitOrderbookLevel | None = None,
+        level: UpbitOrderbookLevel = 0,
     ) -> list[UpbitOrderbook]:
         """
         Query order book
@@ -438,43 +490,135 @@ class UpbitMarketHttpAPI:
         bar_type: BarType,
         ts_init: int,
         interval: UpbitCandleInterval,
-        count: int | None = None,
+        limit: int | None = None,
         start_time: int | None = None,
         end_time: int | None = None,
     ) -> list[UpbitBar]:
         """
         Request Binance Bars from Klines.
         """
-        end_time = int(end_time) if end_time is not None else sys.maxsize
+        start_time = int(start_time) if start_time is not None else sys.maxsize
 
-        all_bars: list[UpbitBar] = []
+        bars_list: list[list[UpbitBar]] = []
         while True:
             candles = await self.query_candles(
                 symbol=bar_type.instrument_id.symbol.value,
                 interval=interval,
-                to=unix_nanos_to_dt(
-                    millis_to_nanos(end_time)
-                ).isoformat(),  # TODO: milli/nano 단위 체크!
-                count=count,
+                to=(
+                    unix_nanos_to_iso8601(millis_to_nanos(end_time))
+                    if end_time is not None
+                    else None
+                ),  # TODO: milli/nano 단위 체크!
+                count=UPBIT_MAX_CANDLE_COUNT,
             )
             bars: list[UpbitBar] = [
-                candle.parse_to_upbit_bar(bar_type, ts_init) for candle in candles
+                candle.parse_to_upbit_bar(bar_type, ts_init) for candle in reversed(candles)
             ]
-            all_bars.extend(bars)
+            bars_list.append(bars)
 
             # Update the start_time to fetch the next set of bars
             if candles:
-                next_end_time = candles[0].timestamp - 1
+                next_end_time = candles[-1].timestamp - 1
             else:
                 # Handle the case when klines is empty
                 break
 
             # No more bars to fetch
-            if (count and len(candles) < count) or start_time is None or next_end_time < start_time:
+            if (
+                len(candles) < UPBIT_MAX_CANDLE_COUNT
+                or (limit and len(bars_list) * UPBIT_MAX_CANDLE_COUNT >= limit)
+                or next_end_time < start_time
+            ):
                 break
 
             end_time = next_end_time
 
-        all_bars.reverse()
+        bars_list.reverse()
+        all_bars: list[UpbitBar] = []
+        for bars in bars_list:
+            all_bars.extend(bars)
+
+        if limit and len(all_bars) > limit:
+            all_bars = all_bars[-limit:]
+        if start_time:
+            # TODO: 이분탐색으로 최적화 가능한데 200개짜리라 굳이? 싶긴하다. 여유나면 짜기
+            for i, bar in enumerate(reversed(all_bars)):
+                if bar.ts_event < millis_to_nanos(start_time):
+                    all_bars = all_bars[-i:]
+                    break
 
         return all_bars
+
+    async def query_code_info(self) -> list[UpbitCodeInfo]:
+        """
+        Check Binance Spot exchange information.
+        """
+        return await self._endpoint_code_info.get()
+
+
+if __name__ == "__main__":
+    clock = LiveClock()
+
+    http_client = UpbitHttpClient(
+        clock=clock,
+        key=get_api_key(),
+        secret=get_api_secret(),
+        base_url="https://api.upbit.com/",
+    )
+
+    market_http = UpbitMarketHttpAPI(http_client)
+
+    symbol = "KRW-BTC"
+
+    candles = asyncio.run(market_http.query_candles(symbol, UpbitCandleInterval.MINUTE_30))
+    print(candles)
+
+    orderbook = asyncio.run(market_http.query_orderbook([symbol]))
+    print(orderbook)
+
+    trade = asyncio.run(market_http.query_trades(symbol))
+    print(trade)
+
+    bt = BarType(
+        InstrumentId(Symbol(symbol), Venue("UPBIT")),
+        BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST),
+        AggregationSource.EXTERNAL,
+    )
+    start_time = clock.timestamp_ms() - 120000
+    bars = asyncio.run(
+        market_http.request_upbit_bars(
+            bt,
+            interval=UpbitCandleInterval.MINUTE_1,
+            ts_init=clock.timestamp_ns(),
+            start_time=start_time,
+        )
+    )
+    assert nanos_to_millis(bars[0].ts_event) >= start_time
+    assert nanos_to_millis(bars[0].ts_event) - 60000 < start_time
+    for i in range(len(bars) - 1):
+        assert bars[i].ts_event <= bars[i + 1].ts_event
+    print("[candle] two minutes start time query:", len(bars))
+
+    end_time = clock.timestamp_ms()
+    bars = asyncio.run(
+        market_http.request_upbit_bars(
+            bt,
+            interval=UpbitCandleInterval.MINUTE_1,
+            ts_init=clock.timestamp_ns(),
+            end_time=end_time,
+        )
+    )
+    print("[candle] end time query:", len(bars))
+
+    end_time = clock.timestamp_ms()
+    bars = asyncio.run(
+        market_http.request_upbit_bars(
+            bt,
+            interval=UpbitCandleInterval.MINUTE_1,
+            ts_init=clock.timestamp_ns(),
+            limit=5,
+        )
+    )
+    print("[candle] five limit query:", len(bars))
+
+    print("[ticker] ", len(asyncio.run(market_http.query_ticker(["KRW-BTC", "KRW-ETH"]))))

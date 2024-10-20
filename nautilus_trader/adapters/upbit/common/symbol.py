@@ -49,10 +49,12 @@ class UpbitSymbols(str):
         PyCondition.not_empty(symbols, "symbols")
 
         upbit_symbols: list[UpbitSymbol] = [UpbitSymbol(symbol) for symbol in symbols]
-        return super().__new__(cls, json.dumps(upbit_symbols).replace(" ", "")[1:-1])
+        return super().__new__(
+            cls, json.dumps(upbit_symbols).replace('"', "").replace(" ", "")[1:-1]
+        )
 
     def parse_str_to_list(self) -> list[UpbitSymbol]:
-        binance_symbols: list[UpbitSymbol] = json.loads(
+        upbit_symbols: list[UpbitSymbol] = json.loads(
             f"{{{self}}}"
         )  # TODO: 이 기괴한 문법 머임? 테스트 필요
-        return binance_symbols
+        return upbit_symbols

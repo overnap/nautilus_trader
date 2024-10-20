@@ -117,7 +117,7 @@ class UpbitDataClient(LiveMarketDataClient):
         loop: asyncio.AbstractEventLoop,
         client: UpbitHttpClient,
         market: UpbitMarketHttpAPI,
-        enum_parser: BinanceEnumParser, # TODO: 교체하기..
+        enum_parser: BinanceEnumParser,  # TODO: 교체하기..
         msgbus: MessageBus,
         cache: Cache,
         clock: LiveClock,
@@ -127,7 +127,7 @@ class UpbitDataClient(LiveMarketDataClient):
     ) -> None:
         super().__init__(
             loop=loop,
-            client_id=ClientId(name or UPBIT_VENUE.value),  # TODO: 수정
+            client_id=ClientId(name or UPBIT_VENUE.value),
             venue=Venue(name or UPBIT_VENUE.value),
             msgbus=msgbus,
             cache=cache,
@@ -267,7 +267,7 @@ class UpbitDataClient(LiveMarketDataClient):
             )
             return
 
-        if data_type.type == BinanceTicker: # TODO: usage 확인 필요. 이거만 구독 가능할리가?
+        if data_type.type == BinanceTicker:  # TODO: usage 확인 필요. 이거만 구독 가능할리가?
             await self._ws_client.subscribe_ticker(instrument_id.symbol.value)
         else:
             self._log.error(
@@ -283,7 +283,9 @@ class UpbitDataClient(LiveMarketDataClient):
             return
 
         if data_type.type == BinanceTicker:
-            await self._ws_client.unsubscribe_ticker(instrument_id.symbol.value) # TODO: 마찬가지로 usage 확인 필요.
+            await self._ws_client.unsubscribe_ticker(
+                instrument_id.symbol.value
+            )  # TODO: 마찬가지로 usage 확인 필요.
         else:
             self._log.error(
                 f"Cannot unsubscribe from {data_type.type} (not implemented)",
@@ -420,7 +422,7 @@ class UpbitDataClient(LiveMarketDataClient):
         await self._ws_client.subscribe_ticker(instrument_id.symbol.value)
 
     async def _subscribe_trade_ticks(self, instrument_id: InstrumentId) -> None:
-         await self._ws_client.subscribe_trades(instrument_id.symbol.value)
+        await self._ws_client.subscribe_trades(instrument_id.symbol.value)
 
     async def _subscribe_bars(self, bar_type: BarType) -> None:
         self._log.warning("Upbit doesn't support bar subscription", LogColor.BLUE)
@@ -590,7 +592,7 @@ class UpbitDataClient(LiveMarketDataClient):
         partial: Bar = bars.pop()
         self._handle_bars(bar_type, bars, partial, correlation_id)
 
-    async def _request_order_book_snapshot( # TODO: 수정 필요
+    async def _request_order_book_snapshot(  # TODO: 수정 필요
         self,
         instrument_id: InstrumentId,
         limit: int,
@@ -623,7 +625,7 @@ class UpbitDataClient(LiveMarketDataClient):
                 correlation_id=correlation_id,
             )
 
-    async def _aggregate_internal_from_minute_bars( # TODO: 수정 필요
+    async def _aggregate_internal_from_minute_bars(
         self,
         bar_type: BarType,
         start_time_ms: int | None,
@@ -691,7 +693,7 @@ class UpbitDataClient(LiveMarketDataClient):
             )
 
         self._log.info(
-            f"Inferred {len(bars)} {bar_type} bars aggregated from {len(binance_bars)} 1-MINUTE Binance bars",
+            f"Inferred {len(bars)} {bar_type} bars aggregated from {len(upbit_bars)} 1-MINUTE Binance bars",
             LogColor.BLUE,
         )
 
@@ -699,7 +701,7 @@ class UpbitDataClient(LiveMarketDataClient):
             bars = bars[:count]
         return bars
 
-    def _aggregate_bar_to_trade_ticks( # TODO: 수정 필요
+    def _aggregate_bar_to_trade_ticks(
         self,
         instrument: Instrument,
         aggregator: BarAggregator,

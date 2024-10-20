@@ -21,7 +21,7 @@ import msgspec
 ################################################################################
 
 
-class BinanceSpotTradeFee(msgspec.Struct, frozen=True):
+class UpbitSpotTradeFee(msgspec.Struct, frozen=True):
     """
     Schema of a single `Binance Spot/Margin` tradeFee.
     """

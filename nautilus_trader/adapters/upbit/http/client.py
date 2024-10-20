@@ -165,6 +165,7 @@ class UpbitHttpClient:
             payload = None  # Don't send payload in the body
 
         self._log.debug(f"{url_path} {payload}", LogColor.MAGENTA)
+        print(f"{url_path}")
 
         response: HttpResponse = await self._client.request(
             http_method,
@@ -175,7 +176,7 @@ class UpbitHttpClient:
         )
 
         if 400 <= response.status < 500:
-            raise BinanceClientError(
+            raise BinanceClientError(  # TODO: 에러 수정
                 status=response.status,
                 message=msgspec.json.decode(response.body) if response.body else None,
                 headers=response.headers,

@@ -21,8 +21,7 @@ https://binance-docs.github.io/apidocs/spot/en/#public-api-definitions
 https://binance-docs.github.io/apidocs/futures/en/#public-endpoints-info
 
 """
-
-
+from decimal import Decimal
 from enum import Enum
 from enum import unique
 
@@ -609,7 +608,7 @@ class BinanceEnumParser:
 
     def parse_binance_kline_interval_to_bar_spec(
         self,
-        kline_interval: BinanceKlineInterval,
+        kline_interval: UpbitCandleInterval,
     ) -> BarSpecification:
         step = kline_interval.value[:-1]
         binance_bar_agg = kline_interval.value[-1]
@@ -624,3 +623,13 @@ class BinanceEnumParser:
         raise NotImplementedError(  # pragma: no cover (design-time error)
             "Cannot parse binance trigger type (not implemented).",  # pragma: no cover
         )
+
+
+@unique
+class UpbitTradeFee(Enum):
+
+    KRW_COMMON = Decimal("0.0005")  # 0.05%
+    KRW_RESERVE = Decimal("0.00139")  # 0.139%
+    BTC = Decimal("0.0025")  # 0.25%
+    USDT_MAKER = Decimal("0.000")  # 0%
+    USDT_TAKER = Decimal("0.001")  # 0.1%
