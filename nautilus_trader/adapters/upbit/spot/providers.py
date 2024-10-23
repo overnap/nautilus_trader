@@ -18,17 +18,6 @@ from decimal import Decimal
 import msgspec
 from nautilus_trader.core.rust.model import CurrencyType
 
-from nautilus_trader.adapters.binance.common.constants import BINANCE_VENUE
-from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
-from nautilus_trader.adapters.binance.common.enums import BinanceSymbolFilterType
-from nautilus_trader.adapters.binance.common.schemas.market import BinanceSymbolFilter
-from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
-from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
-from nautilus_trader.adapters.binance.http.error import BinanceClientError
-from nautilus_trader.adapters.binance.spot.http.market import BinanceSpotMarketHttpAPI
-from nautilus_trader.adapters.binance.spot.http.wallet import BinanceSpotWalletHttpAPI
-from nautilus_trader.adapters.binance.spot.schemas.market import BinanceSpotSymbolInfo
-from nautilus_trader.adapters.binance.spot.schemas.wallet import BinanceSpotTradeFee
 from nautilus_trader.adapters.upbit.common.constants import UPBIT_VENUE
 from nautilus_trader.adapters.upbit.common.credentials import get_api_key, get_api_secret
 from nautilus_trader.adapters.upbit.common.enums import UpbitTradeFee
@@ -40,7 +29,6 @@ from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.config import InstrumentProviderConfig
 from nautilus_trader.core.correctness import PyCondition
-from nautilus_trader.core.datetime import millis_to_nanos
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
@@ -48,6 +36,7 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.instruments.currency_pair import CurrencyPair
 from nautilus_trader.model.objects import PRICE_MAX, Currency
+from nautilus_trader.model.objects import MONEY_MAX
 from nautilus_trader.model.objects import PRICE_MIN
 from nautilus_trader.model.objects import QUANTITY_MAX
 from nautilus_trader.model.objects import QUANTITY_MIN
@@ -212,7 +201,7 @@ class UpbitInstrumentProvider(InstrumentProvider):
                     )[0].price
 
                 # TODO: Price랑 숫자랑 비교가 제대로 동작하는지 확인.
-                order_precision = None
+                order_precision: str
                 if current_price >= 2_000_000:
                     order_precision = "1000"
                 elif current_price >= 1_000_000:
@@ -366,7 +355,6 @@ class UpbitInstrumentProvider(InstrumentProvider):
             else:
                 raise ValueError(f"quote `{quote_asset}` is not in {{KRW, BTC, USDT}}")
 
-            print(f"{raw_symbol} : {instrument.price_increment}")
             self.add_currency(currency=instrument.base_currency)
             self.add_currency(currency=instrument.quote_currency)
             self.add(instrument=instrument)
@@ -393,12 +381,14 @@ if __name__ == "__main__":
     # english_name: str
 
     ip = UpbitInstrumentProvider(http_client, clock)
+    print(ip._instruments)
 
     code_info = UpbitCodeInfo("KRW-BTC", "비트코인", "블라블라")
     res = asyncio.run(ip._parse_instrument(code_info, clock.timestamp_ns()))
 
     code_info = UpbitCodeInfo("USDT-BTC", "비트코인", "블라블라")
     res = asyncio.run(ip._parse_instrument(code_info, clock.timestamp_ns()))
+    print(ip._instruments)
 
     asyncio.run(ip.load_all_async())
 

@@ -487,7 +487,7 @@ class BinanceErrorCode(Enum):
     INVALID_GOOD_TILL_DATE = -5040
 
 
-class BinanceEnumParser:
+class UpbitEnumParser:
     """
     Provides common parsing methods for enums used by the 'Binance' exchange.
 
@@ -517,7 +517,7 @@ class BinanceEnumParser:
         self.int_to_ext_order_side = {b: a for a, b in self.ext_to_int_order_side.items()}
 
         self.ext_to_int_bar_agg = {
-            "s": BarAggregation.SECOND,
+            # "s": BarAggregation.SECOND, # TODO: 업비트에 없음.
             "m": BarAggregation.MINUTE,
             "h": BarAggregation.HOUR,
             "d": BarAggregation.DAY,
@@ -597,6 +597,7 @@ class BinanceEnumParser:
                 f"unrecognized Binance kline resolution, was {bar_agg}",
             )
 
+    # TODO: 데이터클라이언트는 이거만 짜면 됨.
     def parse_nautilus_bar_aggregation(self, bar_agg: BarAggregation) -> str:
         try:
             return self.int_to_ext_bar_agg[bar_agg]

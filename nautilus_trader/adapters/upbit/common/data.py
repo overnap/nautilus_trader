@@ -19,12 +19,14 @@ from decimal import Decimal
 
 import msgspec
 import pandas as pd
+from nautilus_trader.core.nautilus_pyo3.core import secs_to_nanos
 
 from nautilus_trader.adapters.upbit.common.constants import UPBIT_VENUE
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceErrorCode
 from nautilus_trader.adapters.binance.common.enums import BinanceKlineInterval
+from nautilus_trader.adapters.upbit.common.credentials import get_api_key, get_api_secret
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketMsg
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketOrderbook
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketTicker
@@ -33,15 +35,17 @@ from nautilus_trader.adapters.binance.common.types import BinanceTicker
 from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.http.error import BinanceError
-from nautilus_trader.adapters.upbit.common.enums import UpbitCandleInterval
+from nautilus_trader.adapters.upbit.common.enums import UpbitCandleInterval, UpbitEnumParser
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
 from nautilus_trader.adapters.upbit.common.types import UpbitBar, UpbitTicker
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
+from nautilus_trader.adapters.upbit.spot.providers import UpbitInstrumentProvider
 from nautilus_trader.adapters.upbit.websocket.client import UpbitWebSocketClient
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.config import InstrumentProviderConfig
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.core.correctness import PyCondition
@@ -73,6 +77,9 @@ from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.objects import Quantity
+
+from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
+from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 
 
 class UpbitDataClient(LiveMarketDataClient):
@@ -117,13 +124,14 @@ class UpbitDataClient(LiveMarketDataClient):
         loop: asyncio.AbstractEventLoop,
         client: UpbitHttpClient,
         market: UpbitMarketHttpAPI,
-        enum_parser: BinanceEnumParser,  # TODO: 교체하기..
+        enum_parser: UpbitEnumParser,
         msgbus: MessageBus,
         cache: Cache,
         clock: LiveClock,
         instrument_provider: InstrumentProvider,
         url_ws: str,
         name: str | None,
+        # config?
     ) -> None:
         super().__init__(
             loop=loop,
@@ -174,7 +182,7 @@ class UpbitDataClient(LiveMarketDataClient):
         self._ws_handlers = {
             "ticker": self._handle_ticker,
             "trade": self._handle_trade,
-            "order": self._handle_trade,
+            "order": self._handle_book_partial_update,
         }
 
         # WebSocket msgspec decoders
@@ -425,7 +433,55 @@ class UpbitDataClient(LiveMarketDataClient):
         await self._ws_client.subscribe_trades(instrument_id.symbol.value)
 
     async def _subscribe_bars(self, bar_type: BarType) -> None:
-        self._log.warning("Upbit doesn't support bar subscription", LogColor.BLUE)
+        self.create_task(self._subscribe_bars_mock(bar_type), log_msg=f"subscribe: bars {bar_type}")
+
+    async def _subscribe_bars_mock(self, bar_type: BarType):
+        last_time = 0
+        resolution = self._enum_parser.parse_nautilus_bar_aggregation(bar_type.spec.aggregation)
+
+        interval_ns: int
+        if resolution == "m":
+            interval_ns = 60000000000
+        elif resolution == "h":
+            interval_ns = 3600000000000
+        elif resolution == "d":
+            interval_ns = 86400000000000
+        elif resolution == "w":
+            interval_ns = 604800016558522
+        elif resolution == "M":
+            interval_ns = 2629800000000000
+        else:
+            self._log.error("Bar resolution not supported by Upbit")
+            return
+        interval_ns *= bar_type.spec.step
+
+        interval: UpbitCandleInterval
+        resolution = self._enum_parser.parse_nautilus_bar_aggregation(bar_type.spec.aggregation)
+        try:
+            interval = UpbitCandleInterval(f"{bar_type.spec.step}{resolution}")
+        except ValueError:
+            self._log.error(
+                f"Cannot create Upbit Candle interval. {bar_type.spec.step}{resolution}"
+                "not supported",
+            )
+            return
+
+        while True:
+            # This may be called multiple times as Upbit does not provide immediately
+            while last_time + interval_ns <= self._clock.timestamp_ns():
+                bar = await self._http_market.request_last_upbit_bar_for_subscribe(
+                    bar_type=bar_type,
+                    ts_init=self._clock.timestamp_ns(),
+                    interval=interval,
+                )
+                if bar.ts_event != last_time:
+                    last_time = bar.ts_event
+                    print(f"Test ({last_time}) : {bar}")
+                    self._handle_data(bar)
+                else:
+                    await asyncio.sleep(0.25)  # Hardcoded delay for waiting Upbit
+
+            await asyncio.sleep(2)  # Hardcoded delay for loop
 
     async def _unsubscribe_instruments(self) -> None:
         pass  # Do nothing further
@@ -568,7 +624,7 @@ class UpbitDataClient(LiveMarketDataClient):
                 interval=interval,
                 start_time=start_time_ms,
                 end_time=end_time_ms,
-                count=count if count > 0 else None,
+                limit=count if count > 0 else None,
                 ts_init=self._clock.timestamp_ns(),
             )
 
@@ -839,3 +895,63 @@ class UpbitDataClient(LiveMarketDataClient):
             book_buffer.append(book_snapshot)
         else:
             self._handle_data(book_snapshot)
+
+
+if __name__ == "__main__":
+    loop = asyncio.new_event_loop()
+    clock = LiveClock()
+    trader_id = TestIdStubs.trader_id()
+
+    msgbus = MessageBus(
+        trader_id=trader_id,
+        clock=clock,
+    )
+
+    cache_db = MockCacheDatabase()
+
+    cache = Cache(
+        database=cache_db,
+    )
+
+    http_client = UpbitHttpClient(
+        clock=clock,
+        key=get_api_key(),
+        secret=get_api_secret(),
+        base_url="https://api.upbit.com/",
+    )
+
+    client = UpbitDataClient(
+        loop,
+        http_client,
+        UpbitMarketHttpAPI(http_client),
+        UpbitEnumParser(),
+        msgbus,
+        cache,
+        clock,
+        UpbitInstrumentProvider(
+            http_client,
+            clock,
+            config=InstrumentProviderConfig(load_all=True),
+        ),
+        "wss://api.upbit.com/websocket/v1",
+        None,
+    )
+
+    client.connect()
+    client.subscribe_trade_ticks(
+        InstrumentId(Symbol("KRW-BTC"), UPBIT_VENUE),
+    )
+
+    bt = BarType(
+        InstrumentId(Symbol("KRW-BTC"), Venue("UPBIT")),
+        BarSpecification(1, BarAggregation.MINUTE, PriceType.LAST),
+        AggregationSource.EXTERNAL,
+    )
+    client.subscribe_bars(bt)
+
+    # TODO: implement orderbook
+    # client.subscribe_order_book_deltas()
+
+    print("Tasks created!")
+
+    loop.run_forever()

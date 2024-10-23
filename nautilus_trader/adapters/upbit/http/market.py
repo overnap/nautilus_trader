@@ -508,8 +508,8 @@ class UpbitMarketHttpAPI:
                     unix_nanos_to_iso8601(millis_to_nanos(end_time))
                     if end_time is not None
                     else None
-                ),  # TODO: milli/nano 단위 체크!
-                count=UPBIT_MAX_CANDLE_COUNT,
+                ),
+                count=min(UPBIT_MAX_CANDLE_COUNT, limit) if limit else UPBIT_MAX_CANDLE_COUNT,
             )
             bars: list[UpbitBar] = [
                 candle.parse_to_upbit_bar(bar_type, ts_init) for candle in reversed(candles)
@@ -548,6 +548,27 @@ class UpbitMarketHttpAPI:
                     break
 
         return all_bars
+
+    async def request_last_upbit_bar_for_subscribe(
+        self,
+        bar_type: BarType,
+        ts_init: int,
+        interval: UpbitCandleInterval,
+    ) -> UpbitBar:
+        """
+        Request Binance Bars from Klines.
+        """
+        candles = await self.query_candles(
+            symbol=bar_type.instrument_id.symbol.value,
+            interval=interval,
+            count=1,
+        )
+        bars: list[UpbitBar] = [
+            candle.parse_to_upbit_bar(bar_type, ts_init) for candle in reversed(candles)
+        ]
+        assert len(bars) == 1
+
+        return bars[0]
 
     async def query_code_info(self) -> list[UpbitCodeInfo]:
         """

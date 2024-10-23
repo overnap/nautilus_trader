@@ -14,10 +14,11 @@
 # -------------------------------------------------------------------------------------------------
 
 import asyncio
-import json
 from collections.abc import Awaitable
 from collections.abc import Callable
 from typing import Any
+
+import msgspec
 
 from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
 from nautilus_trader.common.component import LiveClock
@@ -298,19 +299,17 @@ class UpbitWebSocketClient:
         if self._client is None:
             # Make initial connection
             await self.connect()
-            return
 
         await self._subscribe_all()
 
     async def _subscribe_all(self) -> None:
         if self._client is None:
-            self._log.error("Cannot subscribe all: no connected")
-            return
+            await self.connect()
 
         message = self._create_subscribe_msg()
         self._log.debug(f"SENDING: {message}")
 
-        await self._client.send_text(json.dumps(message))
+        await self._client.send_text(msgspec.json.encode(message))
         for code_type, codes in self._codes.items():
             for code in codes:
                 self._log.debug(f"Subscribed to {code}@{code_type}")
@@ -356,3 +355,20 @@ class UpbitWebSocketClient:
             )
 
         return message
+
+
+if __name__ == "__main__":
+    clock = LiveClock()
+
+    client = UpbitWebSocketClient(
+        clock=clock,
+        handler=print,
+        handler_reconnect=None,
+        url="wss://api.upbit.com/websocket/v1",
+        loop=asyncio.get_event_loop(),
+    )
+
+    asyncio.run(client.connect())
+    asyncio.run(client._subscribe("ticker", "KRW-BTC"))
+    asyncio.run(asyncio.sleep(10))
+    asyncio.run(client.disconnect())
