@@ -18,6 +18,7 @@ from collections.abc import Awaitable
 from collections.abc import Callable
 from typing import Any
 
+import jwt
 import msgspec
 
 from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
@@ -66,6 +67,7 @@ class UpbitWebSocketClient:
         handler: Callable[[bytes], None],
         handler_reconnect: Callable[..., Awaitable[None]] | None,
         loop: asyncio.AbstractEventLoop,
+        header: list[tuple[str, str]] = [],
     ) -> None:
         self._clock = clock
         self._log: Logger = Logger(type(self).__name__)
@@ -79,6 +81,20 @@ class UpbitWebSocketClient:
         self._client: WebSocketClient | None = None
         self._is_connecting = False
         self._ticket: UUID4 | None = None
+
+        # For private connection
+        self._header = header
+        # TODO: 일단 키를 안받아오게 함. 어떻게 할지 확정 필요
+        # if key and secret:
+        #     payload = {
+        #         "access_key": key,
+        #         "nonce": UUID4().value,
+        #     }
+        #     jwt_token = jwt.encode(payload, secret)
+        #
+        #     self._header = [("authorization", f"Bearer {jwt_token}")]
+        # else:
+        #     self._header = []
 
     @property
     def url(self) -> str:
@@ -127,7 +143,7 @@ class UpbitWebSocketClient:
             url=self._url,
             handler=self._handler,
             heartbeat=60,  # TODO: 확인
-            headers=[],  # TODO: private 연결 위한 JWT 헤더
+            headers=self._header,
             ping_handler=self._handle_ping,
         )
 
@@ -179,17 +195,51 @@ class UpbitWebSocketClient:
 
         self._log.info(f"Disconnected from {self._url}", LogColor.BLUE)
 
-    async def subscribe_listen_key(self, code_type: str, code: str) -> None:
+    async def subscribe_orders(self, symbol: str | None = None) -> None:
         """
-        Subscribe to user data stream.
+        Subscribe orders; all markets when symbol is None
         """
-        await self._subscribe(code_type, code)
+        if symbol:
+            await self._subscribe("myOrder", symbol)
+        elif "myOrder" not in self._codes or len(self._codes["myOrder"]) > 0:
+            self._codes["myOrder"] = []
+            await self._subscribe_all()
+        else:
+            self._log.warning(f"Cannot subscribe all orders: already subscribed")
 
-    async def unsubscribe_listen_key(self, code_type: str, code: str) -> None:
+    async def unsubscribe_orders(self, symbol: str | None) -> None:
         """
-        Unsubscribe from user data stream.
+        Unsubscribe orders; all markets when symbol is None
         """
-        await self._unsubscribe(code_type, code)
+        if symbol is None or (
+            "myOrder" in self._codes
+            and symbol in self._codes["myOrder"]
+            and len(self._codes["myOrder"]) == 1
+        ):
+            self._codes.pop("myOrder")
+            await self._subscribe_all()
+        else:
+            await self._unsubscribe("myOrder", symbol)
+
+    async def subscribe_assets(self) -> None:
+        """
+        Subscribe assets
+        """
+        if "myAsset" not in self._codes:
+            self._codes["myAsset"] = []
+            await self._subscribe_all()
+        else:
+            self._log.warning(f"Cannot subscribe assets: already subscribed")
+
+    async def unsubscribe_assets(self) -> None:
+        """
+        Unsubscribe assets
+        """
+        if "myAsset" in self._codes:
+            self._codes.pop("myAsset")
+            await self._subscribe_all()
+        else:
+            self._log.warning(f"Cannot unsubscribe assets: not subscribed")
 
     async def subscribe_trades(self, symbol: str) -> None:
         """
@@ -351,6 +401,19 @@ class UpbitWebSocketClient:
                 {
                     "type": "orderbook",
                     "codes": self._codes["orderbook"],
+                }
+            )
+        if self._codes["myAsset"]:
+            message.append(
+                {
+                    "type": "myAsset",
+                }
+            )
+        if self._codes["myOrder"]:
+            message.append(
+                {
+                    "type": "myOrder",
+                    "codes": self._codes["myAsset"],
                 }
             )
 

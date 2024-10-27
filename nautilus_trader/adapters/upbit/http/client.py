@@ -30,7 +30,7 @@ from nautilus_trader.core.nautilus_pyo3 import HttpClient
 from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 from nautilus_trader.core.nautilus_pyo3 import HttpResponse
 from nautilus_trader.core.nautilus_pyo3 import Quota
-from nautilus_trader.core.uuid import UUID4
+from nautilus_trader.core.nautilus_pyo3 import UUID4
 
 
 class UpbitHttpClient:
@@ -124,8 +124,18 @@ class UpbitHttpClient:
 
         payload = {
             "access_token": self._key,
-            "nonce": UUID4().to_str(),
+            "nonce": UUID4().value,
             "query_hash": m.hexdigest(),
+        }
+
+        jwt_token = jwt.encode(payload, self._secret)
+        return f"Bearer {jwt_token}"
+
+    # TODO: 좋지 못한 패턴? 이러면 private 웹소켓 쓸려면 http client도 무조건 필요
+    def get_auth_without_data(self) -> str:
+        payload = {
+            "access_key": self._key,
+            "nonce": UUID4().value,
         }
 
         jwt_token = jwt.encode(payload, self._secret)

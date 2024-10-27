@@ -476,7 +476,6 @@ class UpbitDataClient(LiveMarketDataClient):
                 )
                 if bar.ts_event != last_time:
                     last_time = bar.ts_event
-                    print(f"Test ({last_time}) : {bar}")
                     self._handle_data(bar)
                 else:
                     await asyncio.sleep(0.25)  # Hardcoded delay for waiting Upbit

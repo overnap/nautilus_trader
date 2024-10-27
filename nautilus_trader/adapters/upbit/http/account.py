@@ -97,7 +97,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
 
         Parameters
         ----------
-        symbol : BinanceSymbol
+        symbol : UpbitSymbol
             The symbol of the order
         timestamp : str
             The millisecond timestamp of the request
@@ -126,7 +126,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
 
         Parameters
         ----------
-        symbol : BinanceSymbol
+        symbol : UpbitSymbol
             The symbol of the order
         timestamp : str
             The millisecond timestamp of the request
@@ -210,7 +210,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
 
         """
 
-        symbol: BinanceSymbol
+        symbol: UpbitSymbol
         timestamp: str
         side: BinanceOrderSide
         type: BinanceOrderType
@@ -244,7 +244,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
             The order ID for the request.
         origClientOrderId : str, optional
             The client specified order identifier.
-        symbol : BinanceSymbol
+        symbol : UpbitSymbol
             The symbol of the order.
         side : BinanceOrderSide
             The market side of the order (BUY, SELL).
@@ -260,7 +260,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
 
         """
 
-        symbol: BinanceSymbol
+        symbol: UpbitSymbol
         side: BinanceOrderSide
         quantity: str
         price: str
@@ -328,7 +328,7 @@ class BinanceAllOrdersHttp(BinanceHttpEndpoint):
 
         Parameters
         ----------
-        symbol : BinanceSymbol
+        symbol : UpbitSymbol
             The symbol of the orders
         timestamp : str
             The millisecond timestamp of the request
@@ -347,7 +347,7 @@ class BinanceAllOrdersHttp(BinanceHttpEndpoint):
 
         """
 
-        symbol: BinanceSymbol
+        symbol: UpbitSymbol
         timestamp: str
         orderId: int | None = None
         startTime: int | None = None
@@ -408,7 +408,7 @@ class BinanceOpenOrdersHttp(BinanceHttpEndpoint):
         ----------
         timestamp : str
             The millisecond timestamp of the request
-        symbol : BinanceSymbol, optional
+        symbol : UpbitSymbol, optional
             The symbol of the orders
         recvWindow : str, optional
             The response receive window for the request (cannot be greater than 60000).
@@ -416,7 +416,7 @@ class BinanceOpenOrdersHttp(BinanceHttpEndpoint):
         """
 
         timestamp: str
-        symbol: BinanceSymbol | None = None
+        symbol: UpbitSymbol | None = None
         recvWindow: str | None = None
 
     async def get(self, params: GetParameters) -> list[BinanceOrder]:
@@ -462,7 +462,7 @@ class BinanceUserTradesHttp(BinanceHttpEndpoint):
 
         Parameters
         ----------
-        symbol : BinanceSymbol
+        symbol : UpbitSymbol
             The symbol of the orders
         timestamp : str
             The millisecond timestamp of the request
@@ -483,7 +483,7 @@ class BinanceUserTradesHttp(BinanceHttpEndpoint):
 
         """
 
-        symbol: BinanceSymbol
+        symbol: UpbitSymbol
         timestamp: str
         orderId: int | None = None
         startTime: int | None = None
@@ -498,7 +498,7 @@ class BinanceUserTradesHttp(BinanceHttpEndpoint):
         return self._get_resp_decoder.decode(raw)
 
 
-class BinanceAccountHttpAPI:
+class UpbitAccountHttpAPI:
     """
     Provides access to the Binance Account/Trade HTTP REST API.
 
@@ -555,7 +555,7 @@ class BinanceAccountHttpAPI:
             )
         binance_order = await self._endpoint_order.get(
             params=self._endpoint_order.GetDeleteParameters(
-                symbol=BinanceSymbol(symbol),
+                symbol=UpbitSymbol(symbol),
                 timestamp=self._timestamp(),
                 orderId=order_id,
                 origClientOrderId=orig_client_order_id,
@@ -588,7 +588,7 @@ class BinanceAccountHttpAPI:
             )
         binance_order = await self._endpoint_order.delete(
             params=self._endpoint_order.GetDeleteParameters(
-                symbol=BinanceSymbol(symbol),
+                symbol=UpbitSymbol(symbol),
                 timestamp=self._timestamp(),
                 orderId=order_id,
                 origClientOrderId=orig_client_order_id,
@@ -627,7 +627,7 @@ class BinanceAccountHttpAPI:
         """
         binance_order = await self._endpoint_order.post(
             params=self._endpoint_order.PostParameters(
-                symbol=BinanceSymbol(symbol),
+                symbol=UpbitSymbol(symbol),
                 timestamp=self._timestamp(),
                 side=side,
                 type=order_type,
@@ -669,7 +669,7 @@ class BinanceAccountHttpAPI:
         """
         binance_order = await self._endpoint_order.put(
             params=self._endpoint_order.PutParameters(
-                symbol=BinanceSymbol(symbol),
+                symbol=UpbitSymbol(symbol),
                 timestamp=self._timestamp(),
                 orderId=order_id,
                 origClientOrderId=orig_client_order_id,
@@ -695,7 +695,7 @@ class BinanceAccountHttpAPI:
         """
         return await self._endpoint_all_orders.get(
             params=self._endpoint_all_orders.GetParameters(
-                symbol=BinanceSymbol(symbol),
+                symbol=UpbitSymbol(symbol),
                 timestamp=self._timestamp(),
                 orderId=order_id,
                 startTime=start_time,
@@ -715,7 +715,7 @@ class BinanceAccountHttpAPI:
         """
         return await self._endpoint_open_orders.get(
             params=self._endpoint_open_orders.GetParameters(
-                symbol=BinanceSymbol(symbol) if symbol else None,
+                symbol=UpbitSymbol(symbol) if symbol else None,
                 timestamp=self._timestamp(),
                 recvWindow=recv_window,
             ),
@@ -740,7 +740,7 @@ class BinanceAccountHttpAPI:
             )
         return await self._endpoint_user_trades._get(
             params=self._endpoint_user_trades.GetParameters(
-                symbol=BinanceSymbol(symbol),
+                symbol=UpbitSymbol(symbol),
                 timestamp=self._timestamp(),
                 orderId=order_id,
                 startTime=start_time,

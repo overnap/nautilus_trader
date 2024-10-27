@@ -16,13 +16,22 @@
 from decimal import Decimal
 
 import msgspec
+import pandas as pd
+from nautilus_trader.core.nautilus_pyo3 import AccountBalance
 
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderSide
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderStatus
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderType
 from nautilus_trader.adapters.binance.common.enums import BinanceTimeInForce
-from nautilus_trader.core.datetime import millis_to_nanos
+from nautilus_trader.adapters.upbit.common.enums import (
+    UpbitEnumParser,
+    UpbitOrderType,
+    UpbitOrderStatus,
+    UpbitOrderSide,
+    UpbitTimeInForce,
+)
+from nautilus_trader.core.datetime import millis_to_nanos, dt_to_unix_nanos
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.execution.reports import FillReport
 from nautilus_trader.execution.reports import OrderStatusReport
@@ -259,3 +268,164 @@ class BinanceStatusCode(msgspec.Struct, frozen=True):
 
     code: int
     msg: str
+
+
+class UpbitBalanceInfo(msgspec.Struct, frozen=True):
+    currency: str
+    balance: str
+    locked: str
+    avg_buy_price: str
+    avg_buy_price_modified: bool
+    unit_currency: str
+
+    def parse_to_account_balance(self) -> AccountBalance:
+        currency = Currency.from_str(self.currency)
+        total = Decimal(self.balance)
+        locked = Decimal(self.locked)
+        free: Decimal = total - locked
+        return AccountBalance(
+            total=Money(total, currency),
+            locked=Money(locked, currency),
+            free=Money(free, currency),
+        )
+
+
+class UpbitTrade(msgspec.Struct, frozen=True):
+    market: str
+    uuid: str
+    price: str
+    volume: str
+    funds: str
+    side: UpbitOrderSide
+    created_at: str
+
+    def parse_to_fill_report(
+        self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        report_id: UUID4,
+        enum_parser: UpbitEnumParser,
+        ts_init: int,
+        order_id: str | VenueOrderId,
+        use_position_ids: bool = True,
+    ) -> FillReport:
+        venue_position_id: PositionId | None
+        if use_position_ids:
+            venue_position_id = PositionId(f"{instrument_id}-{self.side.value}")
+        else:
+            venue_position_id = None
+
+        # TODO: ???
+        liquidity_side = LiquiditySide.MAKER if self.isMaker or self.maker else LiquiditySide.TAKER
+
+        return FillReport(
+            account_id=account_id,
+            instrument_id=instrument_id,
+            venue_order_id=VenueOrderId(str(order_id)),
+            venue_position_id=venue_position_id,
+            trade_id=TradeId(str(self.uuid)),
+            order_side=enum_parser.parse_upbit_order_side(self.side),
+            last_qty=Quantity.from_str(self.volume),
+            last_px=Price.from_str(self.price),
+            liquidity_side=liquidity_side,
+            ts_event=dt_to_unix_nanos(pd.to_datetime(self.created_at, format="ISO8601")),
+            commission=None,  # TODO: 넣어줘야할 거 같은데... 직접 계산?
+            report_id=report_id,
+            ts_init=ts_init,
+        )
+
+
+class UpbitOrder(msgspec.Struct, frozen=True):
+    uuid: str
+    side: UpbitOrderSide
+    ord_type: UpbitOrderType
+    price: str
+    state: UpbitOrderStatus
+    market: str
+    created_at: str
+    volume: str
+    remaining_volume: str
+    reserved_fee: str
+    remaining_fee: str
+    paid_fee: str
+    locked: str
+    executed_volume: str
+    trades_count: int
+    time_in_force: UpbitTimeInForce
+    trades: list[UpbitTrade] | None  # 주문 조회할 때만 들어온다
+
+    def parse_to_order_status_report(
+        self,
+        account_id: AccountId,
+        instrument_id: InstrumentId,
+        report_id: UUID4,
+        enum_parser: UpbitEnumParser,
+        ts_init: int,
+        identifier: str | None,
+    ) -> OrderStatusReport:
+        if self.price is None:
+            raise ValueError("`price` was `None` when a value was expected")
+        if self.side is None:
+            raise ValueError("`side` was `None` when a value was expected")
+        if self.ord_type is None:
+            raise ValueError("`ord_type` was `None` when a value was expected")
+        if self.time_in_force is None:
+            raise ValueError("`time_in_force` was `None` when a value was expected")
+        if self.state is None:
+            raise ValueError("`state` was `None` when a value was expected")
+
+        client_order_id = ClientOrderId(identifier) if identifier else None
+        order_list_id = None
+        contingency_type = ContingencyType.NO_CONTINGENCY
+
+        trigger_price = Decimal()
+        trigger_type = TriggerType.NO_TRIGGER
+
+        trailing_offset = None
+        trailing_offset_type = TrailingOffsetType.NO_TRAILING_OFFSET
+
+        avg_px: Decimal | None
+        updated_at = dt_to_unix_nanos(pd.to_datetime(self.created_at, format="ISO8601"))
+        if self.trades:
+            avg_px = Decimal(0)
+            for trade in self.trades:
+                avg_px += Decimal(trade.funds)
+                updated_at = max(
+                    updated_at, dt_to_unix_nanos(pd.to_datetime(trade.created_at, format="ISO8601"))
+                )
+            avg_px /= Decimal(self.executed_volume)
+        else:
+            avg_px = None
+
+        # TODO: ????
+        post_only = (
+            self.type == BinanceOrderType.LIMIT_MAKER or self.timeInForce == BinanceTimeInForce.GTX
+        )
+        reduce_only = self.reduceOnly if self.reduceOnly is not None else False
+
+        return OrderStatusReport(
+            account_id=account_id,
+            instrument_id=instrument_id,
+            client_order_id=client_order_id,
+            order_list_id=order_list_id,
+            venue_order_id=VenueOrderId(str(self.uuid)),
+            order_side=enum_parser.parse_upbit_order_side(self.side),
+            order_type=enum_parser.parse_upbit_order_type(self.ord_type),
+            contingency_type=contingency_type,
+            time_in_force=enum_parser.parse_upbit_time_in_force(self.timeInForce),
+            order_status=enum_parser.parse_upbit_order_status(self.state),
+            price=Price.from_str(self.price),
+            trigger_price=Price.from_str(str(trigger_price)),  # `decimal.Decimal`
+            trigger_type=trigger_type,
+            trailing_offset=trailing_offset,
+            trailing_offset_type=trailing_offset_type,
+            quantity=Quantity.from_str(self.volume),
+            filled_qty=Quantity.from_str(self.executed_volume),
+            avg_px=avg_px,
+            post_only=post_only,
+            reduce_only=reduce_only,
+            ts_accepted=dt_to_unix_nanos(pd.to_datetime(self.created_at, format="ISO8601")),
+            ts_last=updated_at,
+            report_id=report_id,
+            ts_init=ts_init,
+        )

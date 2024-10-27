@@ -341,7 +341,7 @@ class UpbitInstrumentProvider(InstrumentProvider):
                     max_quantity=Quantity.from_str("4294967296"),
                     min_quantity=Quantity.from_str("0.00000001"),
                     max_notional=Money("4294967296", currency=quote_currency),
-                    min_notional=Money("5000", currency=quote_currency),
+                    min_notional=Money("0.5", currency=quote_currency),
                     max_price=Price.from_str("4294967296"),
                     min_price=Price.from_str(order_precision),
                     margin_init=Decimal(0),

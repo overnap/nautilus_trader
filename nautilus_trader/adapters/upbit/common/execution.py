@@ -37,9 +37,19 @@ from nautilus_trader.adapters.binance.http.error import BinanceError
 from nautilus_trader.adapters.binance.http.market import BinanceMarketHttpAPI
 from nautilus_trader.adapters.binance.http.user import BinanceUserDataHttpAPI
 from nautilus_trader.adapters.binance.websocket.client import BinanceWebSocketClient
+from nautilus_trader.adapters.upbit.common.constants import UPBIT_VENUE
+from nautilus_trader.adapters.upbit.common.credentials import get_api_key, get_api_secret
+from nautilus_trader.adapters.upbit.common.enums import UpbitEnumParser
+from nautilus_trader.adapters.upbit.http.account import UpbitAccountHttpAPI
+from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
+from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
+from nautilus_trader.adapters.upbit.http.user import UpbitUserDataHttpAPI
+from nautilus_trader.adapters.upbit.spot.providers import UpbitInstrumentProvider
+from nautilus_trader.adapters.upbit.websocket.client import UpbitWebSocketClient
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
+from nautilus_trader.common.config import InstrumentProviderConfig
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.core.correctness import PyCondition
@@ -79,9 +89,11 @@ from nautilus_trader.model.orders import StopLimitOrder
 from nautilus_trader.model.orders import StopMarketOrder
 from nautilus_trader.model.orders import TrailingStopMarketOrder
 from nautilus_trader.model.position import Position
+from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
+from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 
 
-class BinanceCommonExecutionClient(LiveExecutionClient):
+class UpbitExecutionClient(LiveExecutionClient):
     """
     Execution client providing common functionality for the `Binance` exchanges.
 
@@ -125,16 +137,15 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        client: BinanceHttpClient,
-        account: BinanceAccountHttpAPI,
-        market: BinanceMarketHttpAPI,
-        user: BinanceUserDataHttpAPI,
-        enum_parser: BinanceEnumParser,
+        client: UpbitHttpClient,
+        account: UpbitAccountHttpAPI,
+        market: UpbitMarketHttpAPI,
+        user: UpbitUserDataHttpAPI,
+        enum_parser: UpbitEnumParser,
         msgbus: MessageBus,
         cache: Cache,
         clock: LiveClock,
         instrument_provider: InstrumentProvider,
-        account_type: BinanceAccountType,
         base_url_ws: str,
         name: str | None,
         config: BinanceExecClientConfig,
@@ -153,14 +164,12 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
         )
 
         # Configuration
-        self._binance_account_type: BinanceAccountType = account_type
         self._use_gtd: bool = config.use_gtd
         self._use_reduce_only: bool = config.use_reduce_only
         self._use_position_ids: bool = config.use_position_ids
         self._treat_expired_as_canceled: bool = config.treat_expired_as_canceled
         self._max_retries: int = config.max_retries or 0
         self._retry_delay: float = config.retry_delay or 1.0
-        self._log.info(f"Account type: {self._binance_account_type.value}", LogColor.BLUE)
         self._log.info(f"{config.use_gtd=}", LogColor.BLUE)
         self._log.info(f"{config.use_reduce_only=}", LogColor.BLUE)
         self._log.info(f"{config.use_position_ids=}", LogColor.BLUE)
@@ -169,7 +178,7 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
         self._log.info(f"{config.retry_delay=}", LogColor.BLUE)
 
         self._set_account_id(
-            AccountId(f"{name or BINANCE_VENUE.value}-{self._binance_account_type.value}-master"),
+            AccountId(f"{name or UPBIT_VENUE.value}-master"),
         )
 
         # Enum parser
@@ -187,12 +196,13 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
         self._listen_key: str | None = None
 
         # WebSocket API
-        self._ws_client = BinanceWebSocketClient(
+        self._ws_client = UpbitWebSocketClient(
             clock=clock,
             handler=self._handle_user_ws_message,
             handler_reconnect=None,
-            base_url=base_url_ws,
+            url=base_url_ws,
             loop=self._loop,
+            header=[("authorization", client.get_auth_without_data())],
         )
 
         # Order submission method hashmap
@@ -981,3 +991,51 @@ class BinanceCommonExecutionClient(LiveExecutionClient):
     def _handle_user_ws_message(self, raw: bytes) -> None:
         # Implement in child class
         raise NotImplementedError
+
+
+if __name__ == "__main__":
+    loop = asyncio.new_event_loop()
+    clock = LiveClock()
+    trader_id = TestIdStubs.trader_id()
+
+    msgbus = MessageBus(
+        trader_id=trader_id,
+        clock=clock,
+    )
+
+    cache_db = MockCacheDatabase()
+
+    cache = Cache(
+        database=cache_db,
+    )
+
+    http_client = UpbitHttpClient(
+        clock=clock,
+        key=get_api_key(),
+        secret=get_api_secret(),
+        base_url="https://api.upbit.com/",
+    )
+
+    client = UpbitExecutionClient(
+        loop=loop,
+        client=http_client,
+        account=UpbitAccountHttpAPI(http_client, clock),
+        market=UpbitMarketHttpAPI(http_client),
+        user=UpbitUserDataHttpAPI(http_client),
+        enum_parser=UpbitEnumParser(),
+        msgbus=msgbus,
+        cache=cache,
+        clock=clock,
+        instrument_provider=UpbitInstrumentProvider(
+            http_client,
+            clock,
+            config=InstrumentProviderConfig(load_all=True),
+        ),
+        base_url_ws="wss://api.upbit.com/websocket/v1",
+        name=None,
+        config=BinanceExecClientConfig(),
+    )
+
+    print("Tasks created!")
+
+    loop.run_forever()

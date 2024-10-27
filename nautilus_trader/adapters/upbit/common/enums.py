@@ -184,13 +184,13 @@ class BinanceAccountType(Enum):
 
 
 @unique
-class BinanceOrderSide(Enum):
+class UpbitOrderSide(Enum):
     """
-    Represents a `Binance` order side.
+    Represents a Binance order side.
     """
 
-    BUY = "BUY"
-    SELL = "SELL"
+    ASK = "ASK"
+    BID = "BID"
 
 
 @unique
@@ -210,55 +210,39 @@ class BinanceExecutionType(Enum):
 
 
 @unique
-class BinanceOrderStatus(Enum):
+class UpbitOrderStatus(Enum):
     """
-    Represents a `Binance` order status.
+    Represents a Binance order status.
     """
 
-    NEW = "NEW"
-    PARTIALLY_FILLED = "PARTIALLY_FILLED"
-    FILLED = "FILLED"
-    CANCELED = "CANCELED"
-    PENDING_CANCEL = "PENDING_CANCEL"
-    REJECTED = "REJECTED"
-    EXPIRED = "EXPIRED"
-    EXPIRED_IN_MATCH = "EXPIRED_IN_MATCH"
-    NEW_INSURANCE = "NEW_INSURANCE"  # Liquidation with Insurance Fund
-    NEW_ADL = "NEW_ADL"  # Counterparty Liquidation
+    WAIT = "wait"  # 체결 대기
+    WATCH = "watch"  # 예약 주문 대기
+    TRADE = "trade"  # 체결 발생
+    DONE = "done"  # 전체 체결 완료
+    CANCEL = "cancel"  # 주문 취소
 
 
 @unique
-class BinanceTimeInForce(Enum):
+class UpbitTimeInForce(Enum):
     """
-    Represents a `Binance` order time in force.
+    Represents a Binance order time in force.
     """
 
-    GTC = "GTC"
-    IOC = "IOC"
-    FOK = "FOK"
-    GTX = "GTX"  # FUTURES only, Good-Till-Crossing (Post Only)
-    GTD = "GTD"  # FUTURES only
-    GTE_GTC = "GTE_GTC"  # Undocumented
+    GTC = None
+    IOC = "ioc"
+    FOK = "fok"
 
 
 @unique
-class BinanceOrderType(Enum):
+class UpbitOrderType(Enum):
     """
-    Represents a `Binance` order type.
+    Represents a Binance order type.
     """
 
-    LIMIT = "LIMIT"
-    MARKET = "MARKET"
-    STOP = "STOP"  # FUTURES only
-    STOP_LOSS = "STOP_LOSS"  # SPOT/MARGIN only
-    STOP_LOSS_LIMIT = "STOP_LOSS_LIMIT"  # SPOT/MARGIN only
-    TAKE_PROFIT = "TAKE_PROFIT"
-    TAKE_PROFIT_LIMIT = "TAKE_PROFIT_LIMIT"  # SPOT/MARGIN only
-    LIMIT_MAKER = "LIMIT_MAKER"  # SPOT/MARGIN only
-    STOP_MARKET = "STOP_MARKET"  # FUTURES only
-    TAKE_PROFIT_MARKET = "TAKE_PROFIT_MARKET"  # FUTURES only
-    TRAILING_STOP_MARKET = "TRAILING_STOP_MARKET"  # FUTURES only
-    INSURANCE_FUND = "INSURANCE_FUND"
+    LIMIT = "limit"
+    PRICE = "price"
+    MARKET = "market"
+    BEST = "best"
 
 
 @unique
@@ -500,19 +484,16 @@ class UpbitEnumParser:
     def __init__(self) -> None:
         # Construct dictionary hashmaps
         self.ext_to_int_status = {
-            BinanceOrderStatus.NEW: OrderStatus.ACCEPTED,
-            BinanceOrderStatus.CANCELED: OrderStatus.CANCELED,
-            BinanceOrderStatus.PARTIALLY_FILLED: OrderStatus.PARTIALLY_FILLED,
-            BinanceOrderStatus.FILLED: OrderStatus.FILLED,
-            BinanceOrderStatus.NEW_ADL: OrderStatus.FILLED,
-            BinanceOrderStatus.NEW_INSURANCE: OrderStatus.FILLED,
-            BinanceOrderStatus.EXPIRED: OrderStatus.EXPIRED,
-            BinanceOrderStatus.EXPIRED_IN_MATCH: OrderStatus.CANCELED,  # Canceled due self-trade prevention (STP)
+            UpbitOrderStatus.WAIT: OrderStatus.ACCEPTED,
+            UpbitOrderStatus.WATCH: OrderStatus.ACCEPTED,
+            UpbitOrderStatus.CANCELED: OrderStatus.CANCELED,
+            UpbitOrderStatus.TRADE: OrderStatus.PARTIALLY_FILLED,
+            UpbitOrderStatus.DONE: OrderStatus.FILLED,
         }
 
         self.ext_to_int_order_side = {
-            BinanceOrderSide.BUY: OrderSide.BUY,
-            BinanceOrderSide.SELL: OrderSide.SELL,
+            UpbitOrderSide.BID: OrderSide.BUY,
+            UpbitOrderSide.ASK: OrderSide.SELL,
         }
         self.int_to_ext_order_side = {b: a for a, b in self.ext_to_int_order_side.items()}
 
@@ -527,29 +508,29 @@ class UpbitEnumParser:
         self.int_to_ext_bar_agg = {b: a for a, b in self.ext_to_int_bar_agg.items()}
 
         self.ext_to_int_time_in_force = {
-            BinanceTimeInForce.FOK: TimeInForce.FOK,
-            BinanceTimeInForce.GTC: TimeInForce.GTC,
-            BinanceTimeInForce.GTX: TimeInForce.GTC,  # Convert GTX to GTC
-            BinanceTimeInForce.GTE_GTC: TimeInForce.GTC,  # Undocumented
-            BinanceTimeInForce.IOC: TimeInForce.IOC,
-            BinanceTimeInForce.GTD: TimeInForce.GTD,
+            UpbitTimeInForce.GTC: TimeInForce.GTC,
+            UpbitTimeInForce.FOK: TimeInForce.FOK,
+            UpbitTimeInForce.IOC: TimeInForce.IOC,
         }
-        self.int_to_ext_time_in_force = {
-            TimeInForce.GTC: BinanceTimeInForce.GTC,
-            TimeInForce.GTD: BinanceTimeInForce.GTD,
-            TimeInForce.FOK: BinanceTimeInForce.FOK,
-            TimeInForce.IOC: BinanceTimeInForce.IOC,
-        }
+        self.int_to_ext_time_in_force = {b: a for a, b in self.ext_to_int_time_in_force.items()}
 
-    def parse_binance_order_side(self, order_side: BinanceOrderSide) -> OrderSide:
+        self.ext_to_int_order_type = {
+            UpbitOrderType.LIMIT: OrderType.LIMIT,
+            UpbitOrderType.MARKET: OrderType.MARKET,
+            UpbitOrderType.BEST: OrderType.MARKET_TO_LIMIT,
+            UpbitOrderType.PRICE: OrderType.MARKET,
+        }
+        self.int_to_ext_order_type = {b: a for a, b in self.ext_to_int_order_type.items()}
+
+    def parse_upbit_order_side(self, order_side: UpbitOrderSide) -> OrderSide:
         try:
             return self.ext_to_int_order_side[order_side]
         except KeyError:
             raise RuntimeError(  # pragma: no cover (design-time error)
-                f"unrecognized Binance order side, was {order_side}",  # pragma: no cover
+                f"unrecognized Upbit order side, was {order_side}",  # pragma: no cover
             )
 
-    def parse_internal_order_side(self, order_side: OrderSide) -> BinanceOrderSide:
+    def parse_internal_order_side(self, order_side: OrderSide) -> UpbitOrderSide:
         try:
             return self.int_to_ext_order_side[order_side]
         except KeyError:
@@ -557,15 +538,15 @@ class UpbitEnumParser:
                 f"unrecognized Nautilus order side, was {order_side}",  # pragma: no cover
             )
 
-    def parse_binance_time_in_force(self, time_in_force: BinanceTimeInForce) -> TimeInForce:
+    def parse_upbit_time_in_force(self, time_in_force: UpbitTimeInForce) -> TimeInForce:
         try:
             return self.ext_to_int_time_in_force[time_in_force]
         except KeyError:
             raise RuntimeError(  # pragma: no cover (design-time error)
-                f"unrecognized Binance time in force, was {time_in_force}",  # pragma: no cover
+                f"unrecognized Upbit time in force, was {time_in_force}",  # pragma: no cover
             )
 
-    def parse_internal_time_in_force(self, time_in_force: TimeInForce) -> BinanceTimeInForce:
+    def parse_internal_time_in_force(self, time_in_force: TimeInForce) -> UpbitTimeInForce:
         try:
             return self.int_to_ext_time_in_force[time_in_force]
         except KeyError:
@@ -573,21 +554,29 @@ class UpbitEnumParser:
                 f"unrecognized Nautilus time in force, was {time_in_force}",  # pragma: no cover
             )
 
-    def parse_binance_order_status(self, order_status: BinanceOrderStatus) -> OrderStatus:
+    def parse_upbit_order_status(self, order_status: UpbitOrderStatus) -> OrderStatus:
         try:
             return self.ext_to_int_status[order_status]
         except KeyError:
             raise RuntimeError(  # pragma: no cover (design-time error)
-                f"unrecognized binance order status, was {order_status}",  # pragma: no cover
+                f"unrecognized Upbit order status, was {order_status}",  # pragma: no cover
             )
 
-    def parse_binance_order_type(self, order_type: BinanceOrderType) -> OrderType:
-        # Implement in child class
-        raise NotImplementedError
+    def parse_upbit_order_type(self, order_type: UpbitOrderType) -> OrderType:
+        try:
+            return self.ext_to_int_order_type[order_type]
+        except KeyError:
+            raise RuntimeError(  # pragma: no cover (design-time error)
+                f"unrecognized Upbit order type, was {order_type}",  # pragma: no cover
+            )
 
-    def parse_internal_order_type(self, order: Order) -> BinanceOrderType:
-        # Implement in child class
-        raise NotImplementedError
+    def parse_internal_order_type(self, order_type: OrderType) -> UpbitOrderType:
+        try:
+            return self.int_to_ext_order_type[order_type]
+        except KeyError:
+            raise RuntimeError(  # pragma: no cover (design-time error)
+                f"unrecognized Nautilus order type, was {order_type}",  # pragma: no cover
+            )
 
     def parse_binance_bar_agg(self, bar_agg: str) -> BarAggregation:
         try:
@@ -597,7 +586,6 @@ class UpbitEnumParser:
                 f"unrecognized Binance kline resolution, was {bar_agg}",
             )
 
-    # TODO: 데이터클라이언트는 이거만 짜면 됨.
     def parse_nautilus_bar_aggregation(self, bar_agg: BarAggregation) -> str:
         try:
             return self.int_to_ext_bar_agg[bar_agg]

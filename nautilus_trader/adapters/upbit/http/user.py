@@ -25,8 +25,11 @@ from nautilus_trader.adapters.binance.http.endpoint import BinanceHttpEndpoint
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 
+from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
+from nautilus_trader.adapters.upbit.http.endpoint import UpbitHttpEndpoint
 
-class BinanceListenKeyHttp(BinanceHttpEndpoint):
+
+class BinanceListenKeyHttp(UpbitHttpEndpoint):
     """
     Endpoint for managing user data streams (listenKey).
 
@@ -59,7 +62,7 @@ class BinanceListenKeyHttp(BinanceHttpEndpoint):
 
     def __init__(
         self,
-        client: BinanceHttpClient,
+        client: UpbitHttpClient,
         url_path: str,
     ):
         methods = {
@@ -121,16 +124,14 @@ class BinanceListenKeyHttp(BinanceHttpEndpoint):
         return self._delete_resp_decoder.decode(raw)
 
 
-class BinanceUserDataHttpAPI:
+class UpbitUserDataHttpAPI:
     """
     Provides access to the `Binance` User HTTP REST API.
 
     Parameters
     ----------
-    client : BinanceHttpClient
+    client : UpbitHttpClient
         The Binance REST API client.
-    account_type : BinanceAccountType
-        The Binance account type, used to select the endpoint.
 
     Warnings
     --------
@@ -140,32 +141,32 @@ class BinanceUserDataHttpAPI:
 
     def __init__(
         self,
-        client: BinanceHttpClient,
-        account_type: BinanceAccountType,
+        client: UpbitHttpClient,
     ):
         PyCondition.not_none(client, "client")
         self.client = client
-        self.account_type = account_type
+        # self.account_type = account_type
 
-        if account_type == BinanceAccountType.SPOT:
-            self.base_endpoint = "/api/v3/"
-            listen_key_url = self.base_endpoint + "userDataStream"
-        elif account_type == BinanceAccountType.MARGIN:
-            self.base_endpoint = "/sapi/v1/"
-            listen_key_url = self.base_endpoint + "userDataStream"
-        elif account_type == BinanceAccountType.ISOLATED_MARGIN:
-            self.base_endpoint = "/sapi/v1/"
-            listen_key_url = self.base_endpoint + "userDataStream/isolated"
-        elif account_type == BinanceAccountType.USDT_FUTURE:
-            self.base_endpoint = "/fapi/v1/"
-            listen_key_url = self.base_endpoint + "listenKey"
-        elif account_type == BinanceAccountType.COIN_FUTURE:
-            self.base_endpoint = "/dapi/v1/"
-            listen_key_url = self.base_endpoint + "listenKey"
-        else:
-            raise RuntimeError(  # pragma: no cover (design-time error)
-                f"invalid `BinanceAccountType`, was {account_type}",  # pragma: no cover (design-time error)
-            )
+        # if account_type == BinanceAccountType.SPOT:
+        #     self.base_endpoint = "/api/v3/"
+        #     listen_key_url = self.base_endpoint + "userDataStream"
+        # elif account_type == BinanceAccountType.MARGIN:
+        #     self.base_endpoint = "/sapi/v1/"
+        #     listen_key_url = self.base_endpoint + "userDataStream"
+        # elif account_type == BinanceAccountType.ISOLATED_MARGIN:
+        #     self.base_endpoint = "/sapi/v1/"
+        #     listen_key_url = self.base_endpoint + "userDataStream/isolated"
+        # elif account_type == BinanceAccountType.USDT_FUTURE:
+        #     self.base_endpoint = "/fapi/v1/"
+        #     listen_key_url = self.base_endpoint + "listenKey"
+        # elif account_type == BinanceAccountType.COIN_FUTURE:
+        #     self.base_endpoint = "/dapi/v1/"
+        #     listen_key_url = self.base_endpoint + "listenKey"
+        # else:
+        #     raise RuntimeError(  # pragma: no cover (design-time error)
+        #         f"invalid `BinanceAccountType`, was {account_type}",  # pragma: no cover (design-time error)
+        #     )
+        listen_key_url = self.base_endpoint
 
         self._endpoint_listenkey = BinanceListenKeyHttp(client, listen_key_url)
 
