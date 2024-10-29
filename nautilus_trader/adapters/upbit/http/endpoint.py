@@ -58,7 +58,6 @@ class UpbitHttpEndpoint:
             UpbitSecurityType.NONE: self.client.send_request,
             UpbitSecurityType.MARKET_DATA: self.client.send_request,
             UpbitSecurityType.TRADE: self.client.sign_request,
-            UpbitSecurityType.USER_DATA: self.client.sign_request,
         }
 
     async def _method(

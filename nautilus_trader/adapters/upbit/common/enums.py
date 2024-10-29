@@ -38,10 +38,12 @@ from nautilus_trader.model.orders import Order
 
 
 @unique
-class UpbitWebSocketCodeType(Enum):
+class UpbitWebSocketType(Enum):
     TICKER = "ticker"
     TRADE = "trade"
     ORDERBOOK = "orderbook"
+    ORDER = "myOrder"
+    ASSET = "myAsset"
 
 
 @unique
@@ -253,7 +255,6 @@ class UpbitSecurityType(Enum):
 
     NONE = "NONE"
     TRADE = "TRADE"
-    USER_DATA = "USER_DATA"
     MARKET_DATA = "MARKET_DATA"
 
 
@@ -471,6 +472,17 @@ class BinanceErrorCode(Enum):
     INVALID_GOOD_TILL_DATE = -5040
 
 
+class UpbitWebSocketType(Enum):
+    """
+    Represents a Binance Spot/Margin event type.
+    """
+
+    outboundAccountPosition = "outboundAccountPosition"
+    balanceUpdate = "balanceUpdate"
+    executionReport = "executionReport"
+    listStatus = "listStatus"
+
+
 class UpbitEnumParser:
     """
     Provides common parsing methods for enums used by the 'Binance' exchange.
@@ -517,10 +529,22 @@ class UpbitEnumParser:
         self.ext_to_int_order_type = {
             UpbitOrderType.LIMIT: OrderType.LIMIT,
             UpbitOrderType.MARKET: OrderType.MARKET,
-            UpbitOrderType.BEST: OrderType.MARKET_TO_LIMIT,
+            UpbitOrderType.BEST: OrderType.MARKET,  # TODO: need to be implement
             UpbitOrderType.PRICE: OrderType.MARKET,
         }
-        self.int_to_ext_order_type = {b: a for a, b in self.ext_to_int_order_type.items()}
+
+        self.valid_time_in_force = {
+            TimeInForce.GTC,
+            TimeInForce.GTD,  # Convert to GTC with log
+            TimeInForce.FOK,
+            TimeInForce.IOC,
+        }
+
+        self.valid_order_types = {
+            OrderType.MARKET,
+            OrderType.LIMIT,
+            OrderType.MARKET_TO_LIMIT,
+        }
 
     def parse_upbit_order_side(self, order_side: UpbitOrderSide) -> OrderSide:
         try:
@@ -562,7 +586,9 @@ class UpbitEnumParser:
                 f"unrecognized Upbit order status, was {order_status}",  # pragma: no cover
             )
 
-    def parse_upbit_order_type(self, order_type: UpbitOrderType) -> OrderType:
+    def parse_upbit_order_type(
+        self, order_type: UpbitOrderType, side: UpbitOrderSide | None = None
+    ) -> OrderType:
         try:
             return self.ext_to_int_order_type[order_type]
         except KeyError:
@@ -570,13 +596,18 @@ class UpbitEnumParser:
                 f"unrecognized Upbit order type, was {order_type}",  # pragma: no cover
             )
 
-    def parse_internal_order_type(self, order_type: OrderType) -> UpbitOrderType:
-        try:
-            return self.int_to_ext_order_type[order_type]
-        except KeyError:
-            raise RuntimeError(  # pragma: no cover (design-time error)
-                f"unrecognized Nautilus order type, was {order_type}",  # pragma: no cover
-            )
+    def parse_internal_order_type(
+        self, order_type: OrderType, side: OrderSide | None = None
+    ) -> UpbitOrderType:
+        if order_type == OrderType.LIMIT:
+            return UpbitOrderType.LIMIT
+        if order_type == OrderType.MARKET:
+            if side == OrderSide.BUY:
+                return UpbitOrderType.PRICE
+            elif side == OrderSide.SELL:
+                return UpbitOrderType.MARKET
+            else:
+                raise ValueError(f"No OrderSide with market order, not supported Upbit.")
 
     def parse_binance_bar_agg(self, bar_agg: str) -> BarAggregation:
         try:

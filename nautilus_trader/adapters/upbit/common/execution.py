@@ -16,7 +16,10 @@
 import asyncio
 from decimal import Decimal
 
+import msgspec
 import pandas as pd
+from nautilus_trader.core.nautilus_pyo3 import millis_to_nanos
+from nautilus_trader.core.nautilus_pyo3.model import LiquiditySide
 
 from nautilus_trader.adapters.binance.common.constants import BINANCE_MAX_CALLBACK_RATE
 from nautilus_trader.adapters.binance.common.constants import BINANCE_MIN_CALLBACK_RATE
@@ -39,11 +42,22 @@ from nautilus_trader.adapters.binance.http.user import BinanceUserDataHttpAPI
 from nautilus_trader.adapters.binance.websocket.client import BinanceWebSocketClient
 from nautilus_trader.adapters.upbit.common.constants import UPBIT_VENUE
 from nautilus_trader.adapters.upbit.common.credentials import get_api_key, get_api_secret
-from nautilus_trader.adapters.upbit.common.enums import UpbitEnumParser
-from nautilus_trader.adapters.upbit.http.account import UpbitAccountHttpAPI
+from nautilus_trader.adapters.upbit.common.enums import (
+    UpbitEnumParser,
+    UpbitTimeInForce,
+    UpbitWebSocketType,
+    UpbitOrderStatus,
+)
+from nautilus_trader.adapters.upbit.common.schemas.exchange import (
+    UpbitOrder,
+    UpbitWebSocketOrder,
+    UpbitWebSocketAsset,
+)
+from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketMsg
+from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
-from nautilus_trader.adapters.upbit.http.user import UpbitUserDataHttpAPI
+from nautilus_trader.adapters.upbit.http.exchange import UpbitExchangeHttpAPI
 from nautilus_trader.adapters.upbit.spot.providers import UpbitInstrumentProvider
 from nautilus_trader.adapters.upbit.websocket.client import UpbitWebSocketClient
 from nautilus_trader.cache.cache import Cache
@@ -74,15 +88,17 @@ from nautilus_trader.model.enums import TrailingOffsetType
 from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.enums import trailing_offset_type_to_str
 from nautilus_trader.model.enums import trigger_type_to_str
-from nautilus_trader.model.identifiers import AccountId
+from nautilus_trader.model.identifiers import AccountId, TradeId
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.identifiers import VenueOrderId
-from nautilus_trader.model.objects import Price
-from nautilus_trader.model.orders import LimitOrder
+from nautilus_trader.model.objects import Price, Quantity
+
+from nautilus_trader.model.functions import order_type_to_str, time_in_force_to_str
+from nautilus_trader.model.orders import LimitOrder, MarketToLimitOrder
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.orders import Order
 from nautilus_trader.model.orders import StopLimitOrder
@@ -138,9 +154,8 @@ class UpbitExecutionClient(LiveExecutionClient):
         self,
         loop: asyncio.AbstractEventLoop,
         client: UpbitHttpClient,
-        account: UpbitAccountHttpAPI,
         market: UpbitMarketHttpAPI,
-        user: UpbitUserDataHttpAPI,
+        exchange: UpbitExchangeHttpAPI,
         enum_parser: UpbitEnumParser,
         msgbus: MessageBus,
         cache: Cache,
@@ -154,9 +169,9 @@ class UpbitExecutionClient(LiveExecutionClient):
             loop=loop,
             client_id=ClientId(name or BINANCE_VENUE.value),
             venue=Venue(name or BINANCE_VENUE.value),
-            oms_type=OmsType.HEDGING if account_type.is_futures else OmsType.NETTING,
+            oms_type=OmsType.NETTING,
             instrument_provider=instrument_provider,
-            account_type=AccountType.CASH if account_type.is_spot else AccountType.MARGIN,
+            account_type=AccountType.CASH,
             base_currency=None,
             msgbus=msgbus,
             cache=cache,
@@ -167,7 +182,6 @@ class UpbitExecutionClient(LiveExecutionClient):
         self._use_gtd: bool = config.use_gtd
         self._use_reduce_only: bool = config.use_reduce_only
         self._use_position_ids: bool = config.use_position_ids
-        self._treat_expired_as_canceled: bool = config.treat_expired_as_canceled
         self._max_retries: int = config.max_retries or 0
         self._retry_delay: float = config.retry_delay or 1.0
         self._log.info(f"{config.use_gtd=}", LogColor.BLUE)
@@ -186,34 +200,34 @@ class UpbitExecutionClient(LiveExecutionClient):
 
         # Http API
         self._http_client = client
-        self._http_account = account
         self._http_market = market
-        self._http_user = user
-
-        # Listen keys
-        self._ping_listen_keys_interval: int = 60 * 5  # Once every 5 mins (hardcode)
-        self._ping_listen_keys_task: asyncio.Task | None = None
-        self._listen_key: str | None = None
+        self._http_exchange = exchange
 
         # WebSocket API
         self._ws_client = UpbitWebSocketClient(
             clock=clock,
-            handler=self._handle_user_ws_message,
+            handler=self._handle_ws_message,
             handler_reconnect=None,
             url=base_url_ws,
             loop=self._loop,
             header=[("authorization", client.get_auth_without_data())],
         )
 
+        # Register spot websocket user data event handlers
+        self._ws_handlers = {
+            UpbitWebSocketType.ORDER: self._handle_asset_update,
+            UpbitWebSocketType.ASSET: self._handle_order_update,
+        }
+
+        # Websocket schema decoders
+        self._decoder_ws_message = msgspec.json.Decoder(UpbitWebSocketMsg)
+        self._decoder_asset_update = msgspec.json.Decoder(UpbitWebSocketAsset)
+        self._decoder_order_update = msgspec.json.Decoder(UpbitWebSocketOrder)
+
         # Order submission method hashmap
         self._submit_order_method = {
             OrderType.MARKET: self._submit_market_order,
             OrderType.LIMIT: self._submit_limit_order,
-            OrderType.STOP_LIMIT: self._submit_stop_limit_order,
-            OrderType.LIMIT_IF_TOUCHED: self._submit_stop_limit_order,
-            OrderType.STOP_MARKET: self._submit_stop_market_order,
-            OrderType.MARKET_IF_TOUCHED: self._submit_stop_market_order,
-            OrderType.TRAILING_STOP_MARKET: self._submit_trailing_stop_market_order,
         }
 
         # Retry logic (hard coded for now)
@@ -226,8 +240,6 @@ class UpbitExecutionClient(LiveExecutionClient):
             BinanceErrorCode.CANCEL_REJECTED,
             BinanceErrorCode.ME_RECVWINDOW_REJECT,
         }
-
-        self._recv_window = 5_000
 
         # Hot caches
         self._instrument_ids: dict[str, InstrumentId] = {}
@@ -251,76 +263,28 @@ class UpbitExecutionClient(LiveExecutionClient):
         """
         return self._use_position_ids
 
-    @property
-    def treat_expired_as_canceled(self) -> bool:
-        """
-        Whether the `EXPIRED` execution type is treated as a `CANCEL`.
-
-        Returns
-        -------
-        bool
-
-        """
-        return self._treat_expired_as_canceled
-
     async def _connect(self) -> None:
         try:
             # Initialize instrument provider
             await self._instrument_provider.initialize()
 
-            # Authenticate API key and update account(s)
-            await self._update_account_state()
-
-            # Get listen keys
-            response: BinanceListenKey = await self._http_user.create_listen_key()
+            # TODO: 주문 가능 정보 보면서 각 마켓에 대한 제한 저장
         except BinanceError as e:
             self._log.exception(f"Error on connect: {e.message}", e)
             return
 
-        # Check Binance-Nautilus clock sync
-        server_time: int = await self._http_market.request_server_time()
-        self._log.info(f"Binance server time {server_time} UNIX (ms)")
+        # Check Binance-Nautilus clock sync TODO: 이거 대체해서 구현할 수단 있을까?
+        # server_time: int = await self._http_market.request_server_time()
+        # self._log.info(f"Binance server time {server_time} UNIX (ms)")
 
         nautilus_time: int = self._clock.timestamp_ms()
         self._log.info(f"Nautilus clock time {nautilus_time} UNIX (ms)")
 
-        # Setup WebSocket listen key
-        self._listen_key = response.listenKey
-        self._log.info(f"Listen key {self._listen_key}")
-        self._ping_listen_keys_task = self.create_task(self._ping_listen_keys())
-
         # Connect WebSocket client
-        await self._ws_client.subscribe_listen_key(self._listen_key)
-
-    async def _update_account_state(self) -> None:
-        # Replace method in child class
-        raise NotImplementedError
-
-    async def _ping_listen_keys(self) -> None:
-        try:
-            while True:
-                self._log.debug(
-                    f"Scheduled `ping_listen_keys` to run in "
-                    f"{self._ping_listen_keys_interval}s",
-                )
-                await asyncio.sleep(self._ping_listen_keys_interval)
-                if self._listen_key:
-                    self._log.debug(f"Pinging WebSocket listen key {self._listen_key}")
-                    try:
-                        await self._http_user.keepalive_listen_key(listen_key=self._listen_key)
-                    except BinanceClientError as e:
-                        # We may see this if an old listen key was used for the ping
-                        self._log.error(f"Error pinging listen key: {e}")
-        except asyncio.CancelledError:
-            self._log.debug("Canceled `ping_listen_keys` task")
+        await self._ws_client.subscribe_assets()
+        await self._ws_client.subscribe_orders()
 
     async def _disconnect(self) -> None:
-        # Cancel tasks
-        if self._ping_listen_keys_task:
-            self._log.debug("Canceling `ping_listen_keys` task")
-            self._ping_listen_keys_task.cancel()
-            self._ping_listen_keys_task = None
-
         await self._ws_client.disconnect()
 
     # -- EXECUTION REPORTS ------------------------------------------------------------------------
@@ -351,19 +315,12 @@ class UpbitExecutionClient(LiveExecutionClient):
             f"{repr(venue_order_id) if venue_order_id else ''}",
         )
 
+        upbit_order: UpbitOrder | None = None
         try:
             if venue_order_id:
-                binance_order = await self._http_account.query_order(
-                    symbol=instrument_id.symbol.value,
-                    order_id=int(venue_order_id.value),
-                )
+                upbit_order = await self._http_exchange.query_order(venue_order_id=venue_order_id)
             else:
-                binance_order = await self._http_account.query_order(
-                    symbol=instrument_id.symbol.value,
-                    orig_client_order_id=(
-                        client_order_id.value if client_order_id is not None else None
-                    ),
-                )
+                upbit_order = await self._http_exchange.query_order(client_order_id=client_order_id)
         except BinanceError as e:
             retries += 1
             self._log.error(
@@ -393,7 +350,7 @@ class UpbitExecutionClient(LiveExecutionClient):
                     )
             return None  # Error now handled
 
-        if not binance_order or (binance_order.origQty and Decimal(binance_order.origQty) == 0):
+        if not upbit_order:
             # Cannot proceed to generating report
             self._log.error(
                 f"Cannot generate `OrderStatusReport` for {client_order_id=!r}, {venue_order_id=!r}: "
@@ -401,13 +358,13 @@ class UpbitExecutionClient(LiveExecutionClient):
             )
             return None
 
-        report: OrderStatusReport = binance_order.parse_to_order_status_report(
+        report: OrderStatusReport = upbit_order.parse_to_order_status_report(
             account_id=self.account_id,
-            instrument_id=self._get_cached_instrument_id(binance_order.symbol),
+            instrument_id=self._get_cached_instrument_id(upbit_order.market),
             report_id=UUID4(),
             enum_parser=self._enum_parser,
-            treat_expired_as_canceled=self._treat_expired_as_canceled,
             ts_init=self._clock.timestamp_ns(),
+            identifier=client_order_id,
         )
 
         self._log.debug(f"Received {report}")
@@ -424,20 +381,6 @@ class UpbitExecutionClient(LiveExecutionClient):
             active_symbols.add(p.instrument_id.symbol.value)
         return active_symbols
 
-    async def _get_binance_position_status_reports(
-        self,
-        symbol: str | None = None,
-    ) -> list[PositionStatusReport]:
-        # Implement in child class
-        raise NotImplementedError
-
-    async def _get_binance_active_position_symbols(
-        self,
-        symbol: str | None = None,
-    ) -> set[str]:
-        # Implement in child class
-        raise NotImplementedError
-
     async def generate_order_status_reports(
         self,
         instrument_id: InstrumentId | None = None,
@@ -446,55 +389,55 @@ class UpbitExecutionClient(LiveExecutionClient):
         open_only: bool = False,
     ) -> list[OrderStatusReport]:
         self._log.info("Requesting OrderStatusReports...")
-
-        try:
-            # Check Binance for all order active symbols
-            symbol = instrument_id.symbol.value if instrument_id is not None else None
-            active_symbols = self._get_cache_active_symbols()
-            active_symbols.update(await self._get_binance_active_position_symbols(symbol))
-            binance_open_orders = await self._http_account.query_open_orders(symbol)
-            for order in binance_open_orders:
-                active_symbols.add(order.symbol)
-            # Get all orders for those active symbols
-            binance_orders: list[BinanceOrder] = []
-            for symbol in active_symbols:
-                # Here we don't pass a `start_time` or `end_time` as order reports appear to go
-                # randomly missing when these are specified. We filter on the Nautilus side below.
-                # Explicitly setting limit to the max lookback of 1000, in the future we should
-                # add pagination.
-                response = await self._http_account.query_all_orders(symbol=symbol, limit=1_000)
-                binance_orders.extend(response)
-        except BinanceError as e:
-            self._log.exception(f"Cannot generate OrderStatusReport: {e.message}", e)
-            return []
-
-        start_ms = secs_to_millis(start.timestamp()) if start is not None else None
-        end_ms = secs_to_millis(end.timestamp()) if end is not None else None
-
-        reports: list[OrderStatusReport] = []
-        for order in binance_orders:
-            if start_ms is not None and order.time < start_ms:
-                continue  # Filter start on the Nautilus side
-            if end_ms is not None and order.time > end_ms:
-                continue  # Filter end on the Nautilus side
-            if order.origQty and Decimal(order.origQty) == 0:
-                continue  # Cannot parse zero quantity order (filter for Binance)
-            report = order.parse_to_order_status_report(
-                account_id=self.account_id,
-                instrument_id=self._get_cached_instrument_id(order.symbol),
-                report_id=UUID4(),
-                enum_parser=self._enum_parser,
-                treat_expired_as_canceled=self._treat_expired_as_canceled,
-                ts_init=self._clock.timestamp_ns(),
-            )
-            self._log.debug(f"Received {reports}")
-            reports.append(report)
-
-        len_reports = len(reports)
-        plural = "" if len_reports == 1 else "s"
-        self._log.info(f"Received {len(reports)} OrderStatusReport{plural}")
-
-        return reports
+        raise NotImplementedError  # TODO: HTTP API부터 짜야함
+        # try:
+        #     # Check Binance for all order active symbols
+        #     symbol = instrument_id.symbol.value if instrument_id is not None else None
+        #     active_symbols = self._get_cache_active_symbols()
+        #     active_symbols.update(await self._get_binance_active_position_symbols(symbol))
+        #     binance_open_orders = await self._http_account.query_open_orders(symbol)
+        #     for order in binance_open_orders:
+        #         active_symbols.add(order.symbol)
+        #     # Get all orders for those active symbols
+        #     binance_orders: list[BinanceOrder] = []
+        #     for symbol in active_symbols:
+        #         # Here we don't pass a `start_time` or `end_time` as order reports appear to go
+        #         # randomly missing when these are specified. We filter on the Nautilus side below.
+        #         # Explicitly setting limit to the max lookback of 1000, in the future we should
+        #         # add pagination.
+        #         response = await self._http_account.query_all_orders(symbol=symbol, limit=1_000)
+        #         binance_orders.extend(response)
+        # except BinanceError as e:
+        #     self._log.exception(f"Cannot generate OrderStatusReport: {e.message}", e)
+        #     return []
+        #
+        # start_ms = secs_to_millis(start.timestamp()) if start is not None else None
+        # end_ms = secs_to_millis(end.timestamp()) if end is not None else None
+        #
+        # reports: list[OrderStatusReport] = []
+        # for order in binance_orders:
+        #     if start_ms is not None and order.time < start_ms:
+        #         continue  # Filter start on the Nautilus side
+        #     if end_ms is not None and order.time > end_ms:
+        #         continue  # Filter end on the Nautilus side
+        #     if order.origQty and Decimal(order.origQty) == 0:
+        #         continue  # Cannot parse zero quantity order (filter for Binance)
+        #     report = order.parse_to_order_status_report(
+        #         account_id=self.account_id,
+        #         instrument_id=self._get_cached_instrument_id(order.symbol),
+        #         report_id=UUID4(),
+        #         enum_parser=self._enum_parser,
+        #         treat_expired_as_canceled=self._treat_expired_as_canceled,
+        #         ts_init=self._clock.timestamp_ns(),
+        #     )
+        #     self._log.debug(f"Received {reports}")
+        #     reports.append(report)
+        #
+        # len_reports = len(reports)
+        # plural = "" if len_reports == 1 else "s"
+        # self._log.info(f"Received {len(reports)} OrderStatusReport{plural}")
+        #
+        # return reports
 
     async def generate_fill_reports(
         self,
@@ -504,75 +447,97 @@ class UpbitExecutionClient(LiveExecutionClient):
         end: pd.Timestamp | None = None,
     ) -> list[FillReport]:
         self._log.info("Requesting FillReports...")
+        raise NotImplementedError
+        # TODO: order_id가 정해지는 경우 주문 쿼리에서 긁어오기
+        # TODO: start/end만 주어지거나 필터가 아예 없으면 그냥 다봐야함
 
-        try:
-            # Check Binance for all trades on active symbols
-            symbol = instrument_id.symbol.value if instrument_id is not None else None
-            active_symbols = self._get_cache_active_symbols()
-            active_symbols.update(await self._get_binance_active_position_symbols(symbol))
-            binance_trades: list[BinanceUserTrade] = []
-            for symbol in active_symbols:
-                response = await self._http_account.query_user_trades(
-                    symbol=symbol,
-                    start_time=secs_to_millis(start.timestamp()) if start is not None else None,
-                    end_time=secs_to_millis(end.timestamp()) if end is not None else None,
-                )
-                binance_trades.extend(response)
-        except BinanceError as e:
-            self._log.exception(f"Cannot generate FillReport: {e.message}", e)
-            return []
-
-        # Parse all Binance trades
-        reports: list[FillReport] = []
-        for trade in binance_trades:
-            if trade.symbol is None:
-                self._log.warning(f"No symbol for trade {trade}")
-                continue
-            report = trade.parse_to_fill_report(
-                account_id=self.account_id,
-                instrument_id=self._get_cached_instrument_id(trade.symbol),
-                report_id=UUID4(),
-                ts_init=self._clock.timestamp_ns(),
-                use_position_ids=self._use_position_ids,
-            )
-            self._log.debug(f"Received {report}")
-            reports.append(report)
-
-        # Confirm sorting in ascending order
-        reports = sorted(reports, key=lambda x: x.trade_id)
-
-        len_reports = len(reports)
-        plural = "" if len_reports == 1 else "s"
-        self._log.info(f"Received {len(reports)} FillReport{plural}")
-
-        return reports
-
-    async def generate_position_status_reports(
-        self,
-        instrument_id: InstrumentId | None = None,
-        start: pd.Timestamp | None = None,
-        end: pd.Timestamp | None = None,
-    ) -> list[PositionStatusReport]:
-        self._log.info("Requesting PositionStatusReports...")
-
-        try:
-            symbol = instrument_id.symbol.value if instrument_id is not None else None
-            reports = await self._get_binance_position_status_reports(symbol)
-        except BinanceError as e:
-            self._log.exception(f"Cannot generate PositionStatusReport: {e.message}", e)
-            return []
-
-        len_reports = len(reports)
-        plural = "" if len_reports == 1 else "s"
-        self._log.info(f"Received {len(reports)} PositionStatusReport{plural}")
-
-        return reports
+        # try:
+        #     # Check Binance for all trades on active symbols
+        #     symbol = instrument_id.symbol.value if instrument_id is not None else None
+        #     active_symbols = self._get_cache_active_symbols()
+        #     active_symbols.update(await self._get_binance_active_position_symbols(symbol))
+        #     binance_trades: list[BinanceUserTrade] = []
+        #     for symbol in active_symbols:
+        #         response = await self._http_exchange.query_order(venue_order_id=venue_order_id)
+        #         binance_trades.extend(response)
+        # except BinanceError as e:
+        #     self._log.exception(f"Cannot generate FillReport: {e.message}", e)
+        #     return []
+        #
+        # # Parse all Binance trades
+        # reports: list[FillReport] = []
+        # for trade in binance_trades:
+        #     if trade.symbol is None:
+        #         self._log.warning(f"No symbol for trade {trade}")
+        #         continue
+        #     report = trade.parse_to_fill_report(
+        #         account_id=self.account_id,
+        #         instrument_id=self._get_cached_instrument_id(trade.symbol),
+        #         report_id=UUID4(),
+        #         ts_init=self._clock.timestamp_ns(),
+        #         use_position_ids=self._use_position_ids,
+        #     )
+        #     self._log.debug(f"Received {report}")
+        #     reports.append(report)
+        #
+        # # Confirm sorting in ascending order
+        # reports = sorted(reports, key=lambda x: x.trade_id)
+        #
+        # len_reports = len(reports)
+        # plural = "" if len_reports == 1 else "s"
+        # self._log.info(f"Received {len(reports)} FillReport{plural}")
+        #
+        # return reports
 
     # -- COMMAND HANDLERS -------------------------------------------------------------------------
 
     def _check_order_validity(self, order: Order) -> None:
-        # Implement in child class
-        raise NotImplementedError
+        # Check order type valid
+        if order.order_type not in self._enum_parser.valid_order_types:
+            self._log.error(
+                f"Cannot submit order: {order_type_to_str(order.order_type)} "
+                f"orders not supported by the Upbit. "
+                f"Use any of {[order_type_to_str(t) for t in self._enum_parser.valid_order_types]}",
+            )
+            return
+        # Check time in force valid
+        if order.time_in_force not in self._enum_parser.valid_time_in_force:
+            self._log.error(
+                f"Cannot submit order: "
+                f"{time_in_force_to_str(order.time_in_force)} "
+                f"not supported by the Upbit. "
+                f"Use any of {[time_in_force_to_str(t) for t in self._enum_parser.valid_time_in_force]}",
+            )
+            return
+        # Check time in force with order type valid
+        if order.time_in_force != TimeInForce.GTC and order.order_type == OrderType.MARKET:
+            self._log.error(
+                f"Cannot submit order: "
+                f"{time_in_force_to_str(order.time_in_force)} "
+                f"with {order_type_to_str(order.order_type)} orders not supported by the Upbit. "
+                f"See https://docs.upbit.com/reference/%EC%A3%BC%EB%AC%B8%ED%95%98%EA%B8%B0",
+            )
+            return
+        if order.time_in_force == TimeInForce.GTC and order.order_type == OrderType.MARKET_TO_LIMIT:
+            self._log.error(
+                f"Cannot submit order: "
+                f"{time_in_force_to_str(order.time_in_force)} "
+                f"with {order_type_to_str(order.order_type)} orders not supported by the Upbit. "
+                f"See https://docs.upbit.com/reference/%EC%A3%BC%EB%AC%B8%ED%95%98%EA%B8%B0",
+            )
+            return
+        if (
+            order.order_type == OrderType.MARKET
+            and order.side == OrderSide.BUY
+            and not order.is_quote_quantity
+        ):
+            self._log.error(
+                f"Cannot submit order: "
+                f"{order_type_to_str(OrderType.MARKET)} BUYING orders that is not `is_quote_quantity` "
+                f"not supported by the Upbit. "
+                f"See https://docs.upbit.com/reference/%EC%A3%BC%EB%AC%B8%ED%95%98%EA%B8%B0",
+            )
+            return
 
     def _should_retry(self, error_code: BinanceErrorCode, retries: int) -> bool:
         if (
@@ -583,37 +548,17 @@ class UpbitExecutionClient(LiveExecutionClient):
             return False
         return True
 
-    def _determine_time_in_force(self, order: Order) -> BinanceTimeInForce:
-        time_in_force = self._enum_parser.parse_internal_time_in_force(order.time_in_force)
-        if time_in_force == TimeInForce.GTD and not self._use_gtd:
-            time_in_force = TimeInForce.GTC
+    def _determine_time_in_force(self, order: Order) -> UpbitTimeInForce:
+        time_in_force: UpbitTimeInForce
+        if order.time_in_force == TimeInForce.GTD:
+            time_in_force = UpbitTimeInForce.GTC
             self._log.info(
                 f"Converted GTD `time_in_force` to GTC for {order.client_order_id}",
                 LogColor.BLUE,
             )
+        else:
+            time_in_force = self._enum_parser.parse_internal_time_in_force(order.time_in_force)
         return time_in_force
-
-    def _determine_good_till_date(
-        self,
-        order: Order,
-        time_in_force: BinanceTimeInForce | None,
-    ) -> int | None:
-        if time_in_force is None or time_in_force != BinanceTimeInForce.GTD:
-            return None
-
-        good_till_date = nanos_to_millis(order.expire_time_ns) if order.expire_time_ns else None
-        if self._binance_account_type.is_spot_or_margin:
-            good_till_date = None
-            self._log.warning("Cannot set GTD time in force with `expiry_time` for Binance Spot")
-        return good_till_date
-
-    def _determine_reduce_only(self, order: Order) -> bool:
-        return order.is_reduce_only if self._use_reduce_only else False
-
-    def _determine_reduce_only_str(self, order: Order) -> str | None:
-        if self._binance_account_type.is_futures:
-            return str(self._determine_reduce_only(order))
-        return None
 
     async def _submit_order(self, command: SubmitOrder) -> None:
         await self._submit_order_inner(command.order)
@@ -665,66 +610,25 @@ class UpbitExecutionClient(LiveExecutionClient):
                 await asyncio.sleep(self._retry_delay)
 
     async def _submit_market_order(self, order: MarketOrder) -> None:
-        await self._http_account.new_order(
-            symbol=order.instrument_id.symbol.value,
+        await self._http_exchange.new_order(
+            market=order.instrument_id.symbol,
             side=self._enum_parser.parse_internal_order_side(order.side),
-            order_type=self._enum_parser.parse_internal_order_type(order),
-            quantity=str(order.quantity),
-            reduce_only=self._determine_reduce_only_str(order),
-            new_client_order_id=order.client_order_id.value,
-            recv_window=str(self._recv_window),
+            order_type=self._enum_parser.parse_internal_order_type(order.order_type, order.side),
+            time_in_force=UpbitTimeInForce.GTC,
+            volume=(order.quantity if order.side == OrderSide.SELL else None),
+            price=(order.quantity if order.side == OrderSide.BUY else None),
+            client_order_id=order.client_order_id,
         )
 
     async def _submit_limit_order(self, order: LimitOrder) -> None:
-        time_in_force = self._determine_time_in_force(order)
-        if order.is_post_only and self._binance_account_type.is_spot_or_margin:
-            time_in_force = None
-        elif order.is_post_only and self._binance_account_type.is_futures:
-            time_in_force = BinanceTimeInForce.GTX
-
-        await self._http_account.new_order(
-            symbol=order.instrument_id.symbol.value,
+        await self._http_exchange.new_order(
+            market=order.instrument_id.symbol,
             side=self._enum_parser.parse_internal_order_side(order.side),
-            order_type=self._enum_parser.parse_internal_order_type(order),
-            time_in_force=time_in_force,
-            good_till_date=self._determine_good_till_date(order, time_in_force),
-            quantity=str(order.quantity),
-            price=str(order.price),
-            iceberg_qty=str(order.display_qty) if order.display_qty is not None else None,
-            reduce_only=self._determine_reduce_only_str(order),
-            new_client_order_id=order.client_order_id.value,
-            recv_window=str(self._recv_window),
-        )
-
-    async def _submit_stop_limit_order(self, order: StopLimitOrder) -> None:
-        if self._binance_account_type.is_spot_or_margin:
-            working_type = None
-        elif order.trigger_type in (TriggerType.DEFAULT, TriggerType.LAST_TRADE):
-            working_type = "CONTRACT_PRICE"
-        elif order.trigger_type == TriggerType.MARK_PRICE:
-            working_type = "MARK_PRICE"
-        else:
-            self._log.error(
-                f"Cannot submit order: invalid `order.trigger_type`, was "
-                f"{trigger_type_to_str(order.trigger_price)}. {order}",
-            )
-            return
-
-        time_in_force = self._determine_time_in_force(order)
-        await self._http_account.new_order(
-            symbol=order.instrument_id.symbol.value,
-            side=self._enum_parser.parse_internal_order_side(order.side),
-            order_type=self._enum_parser.parse_internal_order_type(order),
-            time_in_force=time_in_force,
-            good_till_date=self._determine_good_till_date(order, time_in_force),
-            quantity=str(order.quantity),
-            price=str(order.price),
-            stop_price=str(order.trigger_price),
-            working_type=working_type,
-            iceberg_qty=str(order.display_qty) if order.display_qty is not None else None,
-            reduce_only=self._determine_reduce_only_str(order),
-            new_client_order_id=order.client_order_id.value,
-            recv_window=str(self._recv_window),
+            order_type=self._enum_parser.parse_internal_order_type(order.order_type),
+            time_in_force=self._determine_time_in_force(order),
+            volume=order.quantity,
+            price=order.price,
+            client_order_id=order.client_order_id,
         )
 
     async def _submit_order_list(self, command: SubmitOrderList) -> None:
@@ -741,162 +645,19 @@ class UpbitExecutionClient(LiveExecutionClient):
                 self._log.warning(f"Cannot yet handle OCO conditional orders, {order}")
             await self._submit_order_inner(order)
 
-    async def _submit_stop_market_order(self, order: StopMarketOrder) -> None:
-        if self._binance_account_type.is_spot_or_margin:
-            working_type = None
-        elif order.trigger_type in (TriggerType.DEFAULT, TriggerType.LAST_TRADE):
-            working_type = "CONTRACT_PRICE"
-        elif order.trigger_type == TriggerType.MARK_PRICE:
-            working_type = "MARK_PRICE"
-        else:
-            self._log.error(
-                f"Cannot submit order: invalid `order.trigger_type`, was "
-                f"{trigger_type_to_str(order.trigger_price)}, {order}",
-            )
-            return
-
-        time_in_force = self._determine_time_in_force(order)
-        await self._http_account.new_order(
-            symbol=order.instrument_id.symbol.value,
-            side=self._enum_parser.parse_internal_order_side(order.side),
-            order_type=self._enum_parser.parse_internal_order_type(order),
-            time_in_force=time_in_force,
-            good_till_date=self._determine_good_till_date(order, time_in_force),
-            quantity=str(order.quantity),
-            stop_price=str(order.trigger_price),
-            working_type=working_type,
-            reduce_only=self._determine_reduce_only_str(order),
-            new_client_order_id=order.client_order_id.value,
-            recv_window=str(self._recv_window),
-        )
-
-    async def _submit_trailing_stop_market_order(self, order: TrailingStopMarketOrder) -> None:
-        if order.trigger_type in (TriggerType.DEFAULT, TriggerType.LAST_TRADE):
-            working_type = "CONTRACT_PRICE"
-        elif order.trigger_type == TriggerType.MARK_PRICE:
-            working_type = "MARK_PRICE"
-        else:
-            self._log.error(
-                f"Cannot submit order: invalid `order.trigger_type`, was "
-                f"{trigger_type_to_str(order.trigger_price)}, {order}",
-            )
-            return
-
-        if order.trailing_offset_type != TrailingOffsetType.BASIS_POINTS:
-            self._log.error(
-                f"Cannot submit order: invalid `order.trailing_offset_type`, was "
-                f"{trailing_offset_type_to_str(order.trailing_offset_type)} (use `BASIS_POINTS`), "
-                f"{order}",
-            )
-            return
-
-        # Convert basis points to percentage rounded to 1 decimal place
-        callback_rate = Decimal(f"{order.trailing_offset / 100:.1f}")
-
-        if callback_rate < BINANCE_MIN_CALLBACK_RATE or callback_rate > BINANCE_MAX_CALLBACK_RATE:
-            self._log.error(
-                f"Cannot submit order: invalid `order.trailing_offset`, was "
-                f"{order.trailing_offset} {trailing_offset_type_to_str(order.trailing_offset_type)} "
-                f"rounded to {callback_rate}%, "
-                f"must in range [{BINANCE_MIN_CALLBACK_RATE}, {BINANCE_MAX_CALLBACK_RATE}]",
-            )
-            return
-
-        # Ensure activation price
-        activation_price: Price | None = order.trigger_price
-        if not activation_price:
-            quote = self._cache.quote_tick(order.instrument_id)
-            trade = self._cache.trade_tick(order.instrument_id)
-            if quote:
-                if order.side == OrderSide.BUY:
-                    activation_price = quote.bid_price
-                elif order.side == OrderSide.SELL:
-                    activation_price = quote.ask_price
-            elif trade:
-                activation_price = trade.price
-            else:
-                self._log.error(
-                    "Cannot submit order: no trigger price specified for Binance activation price "
-                    f"and could not find quotes or trades for {order.instrument_id}",
-                )
-
-        time_in_force = self._determine_time_in_force(order)
-        await self._http_account.new_order(
-            symbol=order.instrument_id.symbol.value,
-            side=self._enum_parser.parse_internal_order_side(order.side),
-            order_type=self._enum_parser.parse_internal_order_type(order),
-            time_in_force=time_in_force,
-            good_till_date=self._determine_good_till_date(order, time_in_force),
-            quantity=str(order.quantity),
-            activation_price=str(activation_price),
-            callback_rate=str(callback_rate),
-            working_type=working_type,
-            reduce_only=self._determine_reduce_only_str(order),
-            new_client_order_id=order.client_order_id.value,
-            recv_window=str(self._recv_window),
-        )
-
     def _get_cached_instrument_id(self, symbol: str) -> InstrumentId:
         # Parse instrument ID
-        nautilus_symbol: str = BinanceSymbol(symbol).parse_as_nautilus(
-            self._binance_account_type,
-        )
+        nautilus_symbol: str = UpbitSymbol(symbol).parse_as_nautilus()
         instrument_id: InstrumentId | None = self._instrument_ids.get(nautilus_symbol)
         if not instrument_id:
             instrument_id = InstrumentId(Symbol(nautilus_symbol), self.venue)
             self._instrument_ids[nautilus_symbol] = instrument_id
         return instrument_id
 
-    async def _modify_order(self, command: ModifyOrder) -> None:
-        if self._binance_account_type.is_spot_or_margin:
-            self._log.error(
-                "Cannot modify order: only supported for `USDT_FUTURE` and `COIN_FUTURE` account types",
-            )
-            return
-
-        order: Order | None = self._cache.order(command.client_order_id)
-        if order is None:
-            self._log.error(f"{command.client_order_id!r} not found to modify")
-            return
-
-        if order.order_type != OrderType.LIMIT:
-            self._log.error(
-                "Cannot modify order: "
-                f"only LIMIT orders supported by the venue (was {order.type_string()})",
-            )
-            return
-
-        while True:
-            try:
-                await self._http_account.modify_order(
-                    symbol=order.instrument_id.symbol.value,
-                    order_id=int(order.venue_order_id.value) if order.venue_order_id else None,
-                    side=self._enum_parser.parse_internal_order_side(order.side),
-                    quantity=str(command.quantity) if command.quantity else str(order.quantity),
-                    price=str(command.price) if command.price else str(order.price),
-                )
-                self._order_retries.pop(command.client_order_id, None)
-                break  # Successful request
-            except BinanceError as e:
-                error_code = BinanceErrorCode(e.message["code"])
-
-                retries = self._order_retries.get(command.client_order_id, 0) + 1
-                self._order_retries[command.client_order_id] = retries
-
-                if not self._should_retry(error_code, retries):
-                    break
-
-                self._log.warning(
-                    f"{error_code.name}: retrying {command.client_order_id!r} "
-                    f"{retries}/{self._max_retries} in {self._retry_delay}s",
-                )
-                await asyncio.sleep(self._retry_delay)
-
     async def _cancel_order(self, command: CancelOrder) -> None:
         while True:
             try:
                 await self._cancel_order_single(
-                    instrument_id=command.instrument_id,
                     client_order_id=command.client_order_id,
                     venue_order_id=command.venue_order_id,
                 )
@@ -923,23 +684,12 @@ class UpbitExecutionClient(LiveExecutionClient):
             strategy_id=command.strategy_id,
         )
 
-        # Check total orders for instrument
-        open_orders_total_count = self._cache.orders_open_count(
-            instrument_id=command.instrument_id,
-        )
-
         try:
-            if open_orders_total_count == len(open_orders_strategy):
-                await self._http_account.cancel_all_open_orders(
-                    symbol=command.instrument_id.symbol.value,
+            for order in open_orders_strategy:
+                await self._cancel_order_single(
+                    client_order_id=order.client_order_id,
+                    venue_order_id=order.venue_order_id,
                 )
-            else:
-                for order in open_orders_strategy:
-                    await self._cancel_order_single(
-                        instrument_id=order.instrument_id,
-                        client_order_id=order.client_order_id,
-                        venue_order_id=order.venue_order_id,
-                    )
         except BinanceError as e:
             if "Unknown order sent" in e.message:
                 self._log.info(
@@ -951,7 +701,6 @@ class UpbitExecutionClient(LiveExecutionClient):
 
     async def _cancel_order_single(
         self,
-        instrument_id: InstrumentId,
         client_order_id: ClientOrderId,
         venue_order_id: VenueOrderId | None,
     ) -> None:
@@ -968,10 +717,9 @@ class UpbitExecutionClient(LiveExecutionClient):
             return
 
         try:
-            await self._http_account.cancel_order(
-                symbol=instrument_id.symbol.value,
-                order_id=int(venue_order_id.value) if venue_order_id else None,
-                orig_client_order_id=client_order_id.value if client_order_id else None,
+            await self._http_exchange.cancel_order(
+                venue_order_id=venue_order_id if venue_order_id else None,
+                client_order_id=client_order_id if client_order_id else None,
             )
         except BinanceError as e:
             error_code = BinanceErrorCode(e.message["code"])
@@ -988,9 +736,86 @@ class UpbitExecutionClient(LiveExecutionClient):
 
     # -- WEBSOCKET EVENT HANDLERS --------------------------------------------------------------------
 
-    def _handle_user_ws_message(self, raw: bytes) -> None:
-        # Implement in child class
-        raise NotImplementedError
+    def _handle_ws_message(self, raw: bytes) -> None:
+        # TODO: Uncomment for development
+        # self._log.info(str(json.dumps(msgspec.json.decode(raw), indent=4)), color=LogColor.MAGENTA)
+        msg = self._decoder_ws_message.decode(raw)
+        try:
+            self._ws_handlers[msg.type](raw)
+        except Exception as e:
+            self._log.exception(f"Error on handling {raw!r}", e)
+
+    def _handle_order_update(self, raw: bytes) -> None:
+        order_msg = self._decoder_order_update.decode(raw)
+
+        venue_order_id = VenueOrderId(order_msg.uuid)
+        client_order_id_str = self._cache.client_order_id(venue_order_id)
+        if not client_order_id_str:
+            raise AssertionError(
+                "Client order id should be set, but not found by venue order id in cache."
+            )
+        client_order_id = ClientOrderId(client_order_id_str)
+        ts_event = millis_to_nanos(order_msg.timestamp)
+        instrument_id = self._get_cached_instrument_id(order_msg.code)
+        strategy_id = self._cache.strategy_id_for_order(client_order_id)
+        if strategy_id is None:
+            report = order_msg.parse_to_order_status_report(
+                account_id=self.account_id,
+                instrument_id=instrument_id,
+                report_id=UUID4(),
+                enum_parser=self._enum_parser,
+                ts_init=self._clock.timestamp_ns(),
+                identifier=client_order_id.value,
+            )
+            self._send_order_status_report(report)
+            strategy_id = self._cache.strategy_id_for_order(
+                client_order_id
+            )  # TODO: 이러면 잘 작동하나?
+
+        if order_msg.state == UpbitOrderStatus.WAIT or order_msg.state == UpbitOrderStatus.WATCH:
+            self.generate_order_accepted(
+                strategy_id=strategy_id,
+                instrument_id=instrument_id,
+                client_order_id=client_order_id,
+                venue_order_id=venue_order_id,
+                ts_event=millis_to_nanos(order_msg.order_timestamp),
+            )
+        elif order_msg.state == UpbitOrderStatus.TRADE:
+            self.generate_order_filled(
+                strategy_id=strategy_id,
+                instrument_id=instrument_id,
+                client_order_id=client_order_id,
+                venue_order_id=venue_order_id,
+                venue_position_id=None,
+                trade_id=TradeId(order_msg.trade_uuid),
+                order_side=self._enum_parser.parse_upbit_order_side(order_msg.ask_bid),
+                order_type=self._enum_parser.parse_upbit_order_type(order_msg.order_type),
+                last_qty=Quantity(order_msg.volume),
+                last_px=Price(order_msg.price),
+                quote_currency=self._instrument_provider.find(instrument_id).quote_currency,
+                commission=order_msg.calculate_commission(),
+                liquidity_side=LiquiditySide.NO_LIQUIDITY_SIDE,
+                ts_event=millis_to_nanos(order_msg.trade_timestamp),
+            )
+        elif order_msg.state == UpbitOrderStatus.DONE:
+            pass  # TODO: 따로 필요 없나?
+        elif order_msg.state == UpbitOrderStatus.CANCEL:
+            self.generate_order_canceled(
+                strategy_id=strategy_id,
+                instrument_id=instrument_id,
+                client_order_id=client_order_id,
+                venue_order_id=venue_order_id,
+                ts_event=ts_event,
+            )
+
+    def _handle_asset_update(self, raw: bytes) -> None:
+        asset_msg = self._decoder_asset_update.decode(raw)
+        self.generate_account_state(
+            balances=[asset.parse_to_account_balance() for asset in asset_msg.assets],
+            margins=[],
+            reported=True,
+            ts_event=millis_to_nanos(asset_msg.asset_timestamp),
+        )
 
 
 if __name__ == "__main__":
@@ -1019,9 +844,8 @@ if __name__ == "__main__":
     client = UpbitExecutionClient(
         loop=loop,
         client=http_client,
-        account=UpbitAccountHttpAPI(http_client, clock),
         market=UpbitMarketHttpAPI(http_client),
-        user=UpbitUserDataHttpAPI(http_client),
+        exchange=UpbitExchangeHttpAPI(http_client),
         enum_parser=UpbitEnumParser(),
         msgbus=msgbus,
         cache=cache,

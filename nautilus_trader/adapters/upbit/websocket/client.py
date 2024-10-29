@@ -22,12 +22,19 @@ import jwt
 import msgspec
 
 from nautilus_trader.adapters.binance.common.symbol import BinanceSymbol
-from nautilus_trader.common.component import LiveClock
+from nautilus_trader.adapters.upbit.common.credentials import get_api_key, get_api_secret
+from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
+from nautilus_trader.cache import Cache
+from nautilus_trader.common.component import LiveClock, MessageBus
 from nautilus_trader.common.component import Logger
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.core.nautilus_pyo3 import WebSocketClient
 from nautilus_trader.core.nautilus_pyo3 import WebSocketConfig
 from nautilus_trader.core.nautilus_pyo3 import UUID4
+
+from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
+from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
+
 
 # TODO: 함수 피쳐들 치기 (완)
 # TODO: 테스트 코드 작성
@@ -403,35 +410,75 @@ class UpbitWebSocketClient:
                     "codes": self._codes["orderbook"],
                 }
             )
-        if self._codes["myAsset"]:
+        if "myAsset" in self._codes:
             message.append(
                 {
                     "type": "myAsset",
                 }
             )
-        if self._codes["myOrder"]:
+        if "myOrder" in self._codes:
             message.append(
                 {
                     "type": "myOrder",
-                    "codes": self._codes["myAsset"],
+                    "codes": self._codes["myOrder"],
                 }
             )
 
+        print(message)
         return message
 
 
 if __name__ == "__main__":
+    # clock = LiveClock()
+    #
+    # client = UpbitWebSocketClient(
+    #     clock=clock,
+    #     handler=print,
+    #     handler_reconnect=None,
+    #     url="wss://api.upbit.com/websocket/v1",
+    #     loop=asyncio.get_event_loop(),
+    # )
+    #
+    # asyncio.run(client.connect())
+    # asyncio.run(client._subscribe("ticker", "KRW-BTC"))
+    # asyncio.run(asyncio.sleep(10))
+    # asyncio.run(client.disconnect())
+
+    loop = asyncio.new_event_loop()
     clock = LiveClock()
+    trader_id = TestIdStubs.trader_id()
+
+    msgbus = MessageBus(
+        trader_id=trader_id,
+        clock=clock,
+    )
+
+    cache_db = MockCacheDatabase()
+
+    cache = Cache(
+        database=cache_db,
+    )
+
+    http_client = UpbitHttpClient(
+        clock=clock,
+        key=get_api_key(),
+        secret=get_api_secret(),
+        base_url="https://api.upbit.com/",
+    )
+
+    def print_with_decode(bytes):
+        print(bytes.decode("utf-8"))
 
     client = UpbitWebSocketClient(
         clock=clock,
-        handler=print,
+        handler=print_with_decode,
         handler_reconnect=None,
-        url="wss://api.upbit.com/websocket/v1",
+        url="wss://api.upbit.com/websocket/v1/private",
         loop=asyncio.get_event_loop(),
+        header=[("authorization", http_client.get_auth_without_data())],
     )
 
     asyncio.run(client.connect())
-    asyncio.run(client._subscribe("ticker", "KRW-BTC"))
-    asyncio.run(asyncio.sleep(10))
+    asyncio.run(client.subscribe_orders())
+    asyncio.run(asyncio.sleep(60000))
     asyncio.run(client.disconnect())
