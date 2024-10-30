@@ -50,7 +50,6 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
         methods = {
             HttpMethod.GET: UpbitSecurityType.TRADE,
             HttpMethod.DELETE: UpbitSecurityType.TRADE,
-            HttpMethod.POST: UpbitSecurityType.TRADE,
         }
         url_path = base_endpoint + "order"
 
@@ -65,15 +64,6 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
     class GetDeleteParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         uuid: str | None = None
         identifier: str | None = None
-
-    class PostParameters(msgspec.Struct, omit_defaults=True, frozen=True):
-        market: UpbitSymbol
-        side: UpbitOrderSide
-        volume: str | None = None
-        price: str | None = None
-        ord_type: UpbitOrderType
-        identifier: str | None = None
-        time_in_force: UpbitTimeInForce = UpbitTimeInForce.GTC
 
     async def get(self, params: GetDeleteParameters) -> UpbitOrder:
         if params.uuid is None and params.identifier is None:
@@ -91,6 +81,36 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
         raw = await self._method(method_type, params)
         return self._resp_decoder.decode(raw)
 
+
+class UpbitOrdersHttp(UpbitHttpEndpoint):
+    def __init__(
+        self,
+        client: UpbitHttpClient,
+        base_endpoint: str,
+    ):
+        methods = {
+            HttpMethod.GET: UpbitSecurityType.TRADE,
+            HttpMethod.POST: UpbitSecurityType.TRADE,
+        }
+        url_path = base_endpoint + "orders"
+
+        super().__init__(
+            client,
+            methods,
+            url_path,
+        )
+
+        self._post_resp_decoder = msgspec.json.Decoder(UpbitOrder)
+
+    class PostParameters(msgspec.Struct, omit_defaults=True, frozen=True):
+        market: str
+        side: UpbitOrderSide
+        ord_type: UpbitOrderType
+        volume: str | None = None
+        price: str | None = None
+        identifier: str | None = None
+        time_in_force: UpbitTimeInForce | None = None
+
     async def post(self, params: PostParameters) -> UpbitOrder:
         if (
             params.ord_type == UpbitOrderType.LIMIT or params.ord_type == UpbitOrderType.MARKET
@@ -101,9 +121,10 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
         ) and params.price is None:
             raise ValueError(f"Post `ord_type == {params.ord_type.name}` order without `price`!")
 
+        print("ORDER! ", params)
         method_type = HttpMethod.POST
         raw = await self._method(method_type, params)
-        return self._resp_decoder.decode(raw)
+        return self._post_resp_decoder.decode(raw)
 
 
 class UpbitExchangeHttpAPI:
@@ -116,6 +137,13 @@ class UpbitExchangeHttpAPI:
         # Create Endpoints
         self._endpoint_accounts = UpbitAccountsHttp(client, self.base_endpoint)
         self._endpoint_order = UpbitOrderHttp(client, self.base_endpoint)
+        self._endpoint_orders = UpbitOrdersHttp(client, self.base_endpoint)
+
+    async def query_asset(self) -> list[UpbitAsset]:
+        """
+        Query asset information
+        """
+        return await self._endpoint_accounts.get()
 
     async def query_order(
         self,
@@ -152,7 +180,7 @@ class UpbitExchangeHttpAPI:
         market: UpbitSymbol,
         side: UpbitOrderSide,
         order_type: UpbitOrderType,
-        time_in_force: UpbitTimeInForce,
+        time_in_force: UpbitTimeInForce | None = None,
         volume: Quantity | None = None,
         price: Price | None = None,
         client_order_id: ClientOrderId | None = None,
@@ -160,14 +188,14 @@ class UpbitExchangeHttpAPI:
         """
         Query new order
         """
-        return await self._endpoint_order.post(
-            params=self._endpoint_order.PostParameters(
-                market=market,
+        return await self._endpoint_orders.post(
+            params=self._endpoint_orders.PostParameters(
+                market=str(market),
                 side=side,
-                volume=volume,
-                price=price,
+                volume=str(volume) if volume else None,
+                price=str(price) if price else None,
                 ord_type=order_type,
-                identifier=client_order_id,
+                identifier=client_order_id.value,
                 time_in_force=time_in_force,
             ),
         )

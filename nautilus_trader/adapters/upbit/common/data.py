@@ -35,7 +35,11 @@ from nautilus_trader.adapters.binance.common.types import BinanceTicker
 from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
 from nautilus_trader.adapters.binance.http.client import BinanceHttpClient
 from nautilus_trader.adapters.binance.http.error import BinanceError
-from nautilus_trader.adapters.upbit.common.enums import UpbitCandleInterval, UpbitEnumParser
+from nautilus_trader.adapters.upbit.common.enums import (
+    UpbitCandleInterval,
+    UpbitEnumParser,
+    UpbitWebSocketType,
+)
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
 from nautilus_trader.adapters.upbit.common.types import UpbitBar, UpbitTicker
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
@@ -180,9 +184,9 @@ class UpbitDataClient(LiveMarketDataClient):
 
         # Register common WebSocket message handlers
         self._ws_handlers = {
-            "ticker": self._handle_ticker,
-            "trade": self._handle_trade,
-            "order": self._handle_book_partial_update,
+            UpbitWebSocketType.TICKER.value: self._handle_ticker,
+            UpbitWebSocketType.TRADE.value: self._handle_trade,
+            UpbitWebSocketType.ORDERBOOK.value: self._handle_book_partial_update,
         }
 
         # WebSocket msgspec decoders

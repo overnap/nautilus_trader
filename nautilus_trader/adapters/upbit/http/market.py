@@ -26,7 +26,7 @@ from nautilus_trader.adapters.upbit.common.enums import UpbitSecurityType
 from nautilus_trader.adapters.upbit.common.enums import UpbitOrderbookLevel
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitOrderbook, UpbitCodeInfo
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitCandle
-from nautilus_trader.adapters.upbit.common.schemas.market import UpbitTicker
+from nautilus_trader.adapters.upbit.common.schemas.market import UpbitTickerResponse
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitTrade
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbols
@@ -209,7 +209,7 @@ class UpbitTickerHttp(UpbitHttpEndpoint):
             methods,
             url_path,
         )
-        self._get_resp_decoder = msgspec.json.Decoder(list[UpbitTicker])
+        self._get_resp_decoder = msgspec.json.Decoder(list[UpbitTickerResponse])
 
     class GetParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         """
@@ -228,7 +228,7 @@ class UpbitTickerHttp(UpbitHttpEndpoint):
 
         markets: UpbitSymbols
 
-    async def get(self, params: GetParameters) -> list[UpbitTicker]:
+    async def get(self, params: GetParameters) -> list[UpbitTickerResponse]:
         method_type = HttpMethod.GET
         raw = await self._method(method_type, params)
         return self._get_resp_decoder.decode(raw)
@@ -356,7 +356,7 @@ class UpbitMarketHttpAPI:
     async def query_ticker(
         self,
         symbols: list[str],
-    ) -> list[UpbitTicker]:
+    ) -> list[UpbitTickerResponse]:
         """
         Query order book
         """

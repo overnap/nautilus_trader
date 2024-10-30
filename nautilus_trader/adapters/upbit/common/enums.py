@@ -191,8 +191,8 @@ class UpbitOrderSide(Enum):
     Represents a Binance order side.
     """
 
-    ASK = "ASK"
-    BID = "BID"
+    ASK = "ask"
+    BID = "bid"
 
 
 @unique
@@ -230,7 +230,6 @@ class UpbitTimeInForce(Enum):
     Represents a Binance order time in force.
     """
 
-    GTC = None
     IOC = "ioc"
     FOK = "fok"
 
@@ -472,17 +471,6 @@ class BinanceErrorCode(Enum):
     INVALID_GOOD_TILL_DATE = -5040
 
 
-class UpbitWebSocketType(Enum):
-    """
-    Represents a Binance Spot/Margin event type.
-    """
-
-    outboundAccountPosition = "outboundAccountPosition"
-    balanceUpdate = "balanceUpdate"
-    executionReport = "executionReport"
-    listStatus = "listStatus"
-
-
 class UpbitEnumParser:
     """
     Provides common parsing methods for enums used by the 'Binance' exchange.
@@ -498,7 +486,7 @@ class UpbitEnumParser:
         self.ext_to_int_status = {
             UpbitOrderStatus.WAIT: OrderStatus.ACCEPTED,
             UpbitOrderStatus.WATCH: OrderStatus.ACCEPTED,
-            UpbitOrderStatus.CANCELED: OrderStatus.CANCELED,
+            UpbitOrderStatus.CANCEL: OrderStatus.CANCELED,
             UpbitOrderStatus.TRADE: OrderStatus.PARTIALLY_FILLED,
             UpbitOrderStatus.DONE: OrderStatus.FILLED,
         }
@@ -520,7 +508,7 @@ class UpbitEnumParser:
         self.int_to_ext_bar_agg = {b: a for a, b in self.ext_to_int_bar_agg.items()}
 
         self.ext_to_int_time_in_force = {
-            UpbitTimeInForce.GTC: TimeInForce.GTC,
+            None: TimeInForce.GTC,
             UpbitTimeInForce.FOK: TimeInForce.FOK,
             UpbitTimeInForce.IOC: TimeInForce.IOC,
         }
@@ -562,7 +550,7 @@ class UpbitEnumParser:
                 f"unrecognized Nautilus order side, was {order_side}",  # pragma: no cover
             )
 
-    def parse_upbit_time_in_force(self, time_in_force: UpbitTimeInForce) -> TimeInForce:
+    def parse_upbit_time_in_force(self, time_in_force: UpbitTimeInForce | None) -> TimeInForce:
         try:
             return self.ext_to_int_time_in_force[time_in_force]
         except KeyError:
@@ -570,7 +558,7 @@ class UpbitEnumParser:
                 f"unrecognized Upbit time in force, was {time_in_force}",  # pragma: no cover
             )
 
-    def parse_internal_time_in_force(self, time_in_force: TimeInForce) -> UpbitTimeInForce:
+    def parse_internal_time_in_force(self, time_in_force: TimeInForce) -> UpbitTimeInForce | None:
         try:
             return self.int_to_ext_time_in_force[time_in_force]
         except KeyError:

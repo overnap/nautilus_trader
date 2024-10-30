@@ -14,6 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 import asyncio
+import traceback
 from decimal import Decimal
 
 import msgspec
@@ -88,7 +89,7 @@ from nautilus_trader.model.enums import TrailingOffsetType
 from nautilus_trader.model.enums import TriggerType
 from nautilus_trader.model.enums import trailing_offset_type_to_str
 from nautilus_trader.model.enums import trigger_type_to_str
-from nautilus_trader.model.identifiers import AccountId, TradeId
+from nautilus_trader.model.identifiers import AccountId, TradeId, TraderId, StrategyId
 from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import ClientOrderId
 from nautilus_trader.model.identifiers import InstrumentId
@@ -98,6 +99,8 @@ from nautilus_trader.model.identifiers import VenueOrderId
 from nautilus_trader.model.objects import Price, Quantity
 
 from nautilus_trader.model.functions import order_type_to_str, time_in_force_to_str
+
+from nautilus_trader.model.events import OrderInitialized
 from nautilus_trader.model.orders import LimitOrder, MarketToLimitOrder
 from nautilus_trader.model.orders import MarketOrder
 from nautilus_trader.model.orders import Order
@@ -106,7 +109,10 @@ from nautilus_trader.model.orders import StopMarketOrder
 from nautilus_trader.model.orders import TrailingStopMarketOrder
 from nautilus_trader.model.position import Position
 from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
+from nautilus_trader.test_kit.rust.orders_pyo3 import TestOrderProviderPyo3
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
+from tests.unit_tests.common.test_factories import TestOrderFactory
+from tests.unit_tests.model.test_orders import TestOrders
 
 
 class UpbitExecutionClient(LiveExecutionClient):
@@ -167,8 +173,8 @@ class UpbitExecutionClient(LiveExecutionClient):
     ) -> None:
         super().__init__(
             loop=loop,
-            client_id=ClientId(name or BINANCE_VENUE.value),
-            venue=Venue(name or BINANCE_VENUE.value),
+            client_id=ClientId(name or UPBIT_VENUE.value),
+            venue=Venue(name or UPBIT_VENUE.value),
             oms_type=OmsType.NETTING,
             instrument_provider=instrument_provider,
             account_type=AccountType.CASH,
@@ -215,8 +221,8 @@ class UpbitExecutionClient(LiveExecutionClient):
 
         # Register spot websocket user data event handlers
         self._ws_handlers = {
-            UpbitWebSocketType.ORDER: self._handle_asset_update,
-            UpbitWebSocketType.ASSET: self._handle_order_update,
+            UpbitWebSocketType.ASSET.value: self._handle_asset_update,
+            UpbitWebSocketType.ORDER.value: self._handle_order_update,
         }
 
         # Websocket schema decoders
@@ -279,6 +285,15 @@ class UpbitExecutionClient(LiveExecutionClient):
 
         nautilus_time: int = self._clock.timestamp_ms()
         self._log.info(f"Nautilus clock time {nautilus_time} UNIX (ms)")
+
+        # Initialize account assets
+        assets = await self._http_exchange.query_asset()
+        self.generate_account_state(
+            balances=[asset.parse_to_account_balance() for asset in assets],
+            margins=[],
+            reported=True,
+            ts_event=millis_to_nanos(nautilus_time),
+        )
 
         # Connect WebSocket client
         await self._ws_client.subscribe_assets()
@@ -548,10 +563,10 @@ class UpbitExecutionClient(LiveExecutionClient):
             return False
         return True
 
-    def _determine_time_in_force(self, order: Order) -> UpbitTimeInForce:
-        time_in_force: UpbitTimeInForce
+    def _determine_time_in_force(self, order: Order) -> UpbitTimeInForce | None:
+        time_in_force: UpbitTimeInForce | None
         if order.time_in_force == TimeInForce.GTD:
-            time_in_force = UpbitTimeInForce.GTC
+            time_in_force = None
             self._log.info(
                 f"Converted GTD `time_in_force` to GTC for {order.client_order_id}",
                 LogColor.BLUE,
@@ -614,7 +629,7 @@ class UpbitExecutionClient(LiveExecutionClient):
             market=order.instrument_id.symbol,
             side=self._enum_parser.parse_internal_order_side(order.side),
             order_type=self._enum_parser.parse_internal_order_type(order.order_type, order.side),
-            time_in_force=UpbitTimeInForce.GTC,
+            time_in_force=None,
             volume=(order.quantity if order.side == OrderSide.SELL else None),
             price=(order.quantity if order.side == OrderSide.BUY else None),
             client_order_id=order.client_order_id,
@@ -739,11 +754,14 @@ class UpbitExecutionClient(LiveExecutionClient):
     def _handle_ws_message(self, raw: bytes) -> None:
         # TODO: Uncomment for development
         # self._log.info(str(json.dumps(msgspec.json.decode(raw), indent=4)), color=LogColor.MAGENTA)
+        print(str(msgspec.json.decode(raw)))
         msg = self._decoder_ws_message.decode(raw)
         try:
             self._ws_handlers[msg.type](raw)
         except Exception as e:
             self._log.exception(f"Error on handling {raw!r}", e)
+            print(e)
+            traceback.print_exc()  # FIXME: 삭제
 
     def _handle_order_update(self, raw: bytes) -> None:
         order_msg = self._decoder_order_update.decode(raw)
@@ -855,10 +873,60 @@ if __name__ == "__main__":
             clock,
             config=InstrumentProviderConfig(load_all=True),
         ),
-        base_url_ws="wss://api.upbit.com/websocket/v1",
+        base_url_ws="wss://api.upbit.com/websocket/v1/private",
         name=None,
         config=BinanceExecClientConfig(),
     )
+
+    client.connect()
+
+    def market_order(
+        instrument_id: InstrumentId | None = None,
+        order_side: OrderSide | None = None,
+        quantity: Quantity | None = None,
+        trader_id: TraderId | None = None,
+        strategy_id: StrategyId | None = None,
+        client_order_id: ClientOrderId | None = None,
+        time_in_force: TimeInForce | None = None,
+        is_quote_quantity: bool = False,
+    ) -> MarketOrder:
+        return MarketOrder(
+            trader_id=trader_id or TestIdStubs.trader_id(),
+            strategy_id=strategy_id or TestIdStubs.strategy_id(),
+            instrument_id=instrument_id or TestIdStubs.audusd_id(),
+            client_order_id=client_order_id or TestIdStubs.client_order_id(),
+            order_side=order_side or OrderSide.BUY,
+            quantity=quantity or Quantity.from_str("100"),
+            time_in_force=time_in_force or TimeInForce.GTC,
+            reduce_only=False,
+            quote_quantity=is_quote_quantity,
+            init_id=TestIdStubs.uuid(),
+            ts_init=0,
+        )
+
+    async def test():
+        await asyncio.sleep(3)
+
+        # TODO: 이러니까 venue id -> client id를 캐시에서 못찾아서 에러남.
+        strategy_id = TestIdStubs.strategy_id()
+        morder = market_order(
+            instrument_id=InstrumentId(Symbol("KRW-BTC"), venue=UPBIT_VENUE),
+            order_side=OrderSide.BUY,
+            quantity=Quantity.from_str("8000"),
+            is_quote_quantity=True,
+            client_order_id=ClientOrderId(UUID4().value),
+        )
+        client.submit_order(
+            SubmitOrder(
+                trader_id=trader_id,
+                strategy_id=strategy_id,
+                order=morder,
+                command_id=UUID4(),
+                ts_init=clock.timestamp_ns(),
+            )
+        )
+
+    loop.create_task(test())
 
     print("Tasks created!")
 

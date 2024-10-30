@@ -123,7 +123,7 @@ class UpbitHttpClient:
         m.update(data.encode())
 
         payload = {
-            "access_token": self._key,
+            "access_key": self._key,
             "nonce": UUID4().value,
             "query_hash": m.hexdigest(),
         }
@@ -171,7 +171,7 @@ class UpbitHttpClient:
         auth_headers: dict[str, Any] | None = None,
     ) -> bytes:
         if payload:
-            url_path += "?" + urllib.parse.urlencode(payload)
+            url_path += "?" + self._prepare_params(payload)
             payload = None  # Don't send payload in the body
 
         self._log.debug(f"{url_path} {payload}", LogColor.MAGENTA)

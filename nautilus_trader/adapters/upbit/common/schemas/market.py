@@ -28,8 +28,9 @@ from nautilus_trader.adapters.binance.common.enums import BinanceRateLimitType
 from nautilus_trader.adapters.binance.common.enums import BinanceSymbolFilterType
 from nautilus_trader.adapters.binance.common.types import BinanceBar
 from nautilus_trader.adapters.binance.common.types import BinanceTicker
+from nautilus_trader.adapters.upbit.common.enums import UpbitOrderSide
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
-from nautilus_trader.adapters.upbit.common.types import UpbitBar
+from nautilus_trader.adapters.upbit.common.types import UpbitBar, UpbitTicker
 from nautilus_trader.core.datetime import millis_to_nanos, dt_to_unix_nanos
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.data import BookOrder
@@ -69,7 +70,7 @@ class UpbitTrade(msgspec.Struct, frozen=True):
     Schema of a single trade.
     """
 
-    market: UpbitSymbol
+    market: str
     trade_date_utc: str
     trade_time_utc: str
     timestamp: int
@@ -105,7 +106,7 @@ class UpbitCandle(msgspec.Struct, frozen=True):
     Schema of single Upbit kline.
     """
 
-    market: UpbitSymbol
+    market: str
     candle_date_time_utc: str
     candle_date_time_kst: str
     opening_price: float
@@ -145,13 +146,13 @@ class UpbitCandle(msgspec.Struct, frozen=True):
         )
 
 
-class UpbitTicker(msgspec.Struct, frozen=True):
+class UpbitTickerResponse(msgspec.Struct, frozen=True):
     """
     Schema of single Upbit ticker.
     `trade_*` means most recent data.
     """
 
-    market: UpbitSymbol
+    market: str
     trade_date: str
     trade_time: str
     trade_date_kst: str
@@ -195,7 +196,7 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
     Schema for Upbit orderbook. (HTTP)
     """
 
-    market: UpbitSymbol
+    market: str
     timestamp: int
     total_ask_size: float
     total_bid_size: float
@@ -226,7 +227,7 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
 
 class UpbitCodeInfo(msgspec.Struct, frozen=True):
 
-    market: UpbitSymbol
+    market: str
     korean_name: str
     english_name: str
 
@@ -266,7 +267,7 @@ class UpbitWebSocketTicker(msgspec.Struct):
     """
 
     type: str  # 타입 (ticker : 현재가)
-    code: UpbitSymbol  # 마켓 코드 (ex. KRW-BTC)
+    code: str  # 마켓 코드 (ex. KRW-BTC)
     opening_price: float  # 시가
     high_price: float  # 고가
     low_price: float  # 저가
@@ -285,7 +286,7 @@ class UpbitWebSocketTicker(msgspec.Struct):
     trade_date: str  # 최근 거래 일자 (UTC) (yyyyMMdd)
     trade_time: str  # 최근 거래 시각 (UTC) (HHmmss)
     trade_timestamp: int  # 체결 타임스탬프 (milliseconds)
-    ask_bid: str  # 매수/매도 구분 (ASK : 매도, BID : 매수)
+    ask_bid: UpbitOrderSide  # 매수/매도 구분 (ASK : 매도, BID : 매수)
     acc_ask_volume: float  # 누적 매도량
     acc_bid_volume: float  # 누적 매수량
     highest_52_week_price: float  # 52주 최고가
@@ -309,22 +310,17 @@ class UpbitWebSocketTicker(msgspec.Struct):
             instrument_id=instrument_id,
             price_change=Decimal(self.signed_change_price),
             price_change_percent=Decimal(self.signed_change_rate),
-            prev_close_price=(
-                Decimal(self.prev_closing_price) if self.prev_closing_price is not None else None
-            ),
+            prev_close_price=Decimal(self.prev_closing_price),
             last_price=Decimal(self.trade_price),
             last_qty=Decimal(self.trade_volume),
             open_price=Decimal(self.opening_price),
             high_price=Decimal(self.high_price),
             low_price=Decimal(self.low_price),
             volume=Decimal(self.acc_trade_volume),
-            quote_volume=Decimal(self.trade_price),
-            open_time_ms=self.O,
-            close_time_ms=self.C,
-            first_id=self.F,
-            last_id=self.L,
-            count=self.n,
-            ts_event=millis_to_nanos(self.E),
+            quote_volume=Decimal(self.acc_trade_price),
+            volume_24h=Decimal(self.acc_trade_volume_24h),
+            quote_volume_24h=Decimal(self.acc_trade_price_24h),
+            ts_event=millis_to_nanos(self.timestamp),
             ts_init=ts_init,
         )
 
@@ -335,10 +331,10 @@ class UpbitWebSocketTrade(msgspec.Struct):
     """
 
     type: str  # 타입
-    code: UpbitSymbol  # 마켓 코드 (ex. KRW-BTC)
+    code: str  # 마켓 코드 (ex. KRW-BTC)
     trade_price: float  # 체결 가격
     trade_volume: float  # 체결량
-    ask_bid: str  # 매수/매도 구분
+    ask_bid: UpbitOrderSide  # 매수/매도 구분
     prev_closing_price: float  # 전일 종가
     change: str  # 전일 대비
     change_price: float  # 부호 없는 전일 대비 값
@@ -362,7 +358,9 @@ class UpbitWebSocketTrade(msgspec.Struct):
             instrument_id=instrument_id,
             price=Price.from_str(self.trade_price),
             size=Quantity.from_str(self.trade_volume),
-            aggressor_side=AggressorSide.BUYER if self.ask_bid == "ASK" else AggressorSide.SELLER,
+            aggressor_side=(
+                AggressorSide.BUYER if self.ask_bid == UpbitOrderSide.BID else AggressorSide.SELLER
+            ),
             trade_id=TradeId(str(self.sequential_id)),
             ts_event=millis_to_nanos(self.timestamp),
             ts_init=ts_init,
@@ -375,7 +373,7 @@ class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
     """
 
     type: str  # 타입 (orderbook : 호가)
-    code: UpbitSymbol  # 마켓 코드 (ex. KRW-BTC)
+    code: str  # 마켓 코드 (ex. KRW-BTC)
     total_ask_size: str  # 호가 매도 총 잔량
     total_bid_size: str  # 호가 매수 총 잔량
     orderbook_units: list[UpbitOrderbookUnit]  # 호가 (List of Objects)

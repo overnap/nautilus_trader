@@ -18,7 +18,6 @@ from decimal import Decimal
 import msgspec
 import pandas as pd
 from attr.setters import frozen
-from nautilus_trader.core.nautilus_pyo3 import AccountBalance
 
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderSide
@@ -51,7 +50,7 @@ from nautilus_trader.model.identifiers import OrderListId
 from nautilus_trader.model.identifiers import PositionId
 from nautilus_trader.model.identifiers import TradeId
 from nautilus_trader.model.identifiers import VenueOrderId
-from nautilus_trader.model.objects import Currency
+from nautilus_trader.model.objects import Currency, AccountBalance
 from nautilus_trader.model.objects import Money
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
@@ -81,9 +80,9 @@ class UpbitAsset(msgspec.Struct, frozen=True):
 
     def parse_to_account_balance(self) -> AccountBalance:
         currency = Currency.from_str(self.currency)
-        total = Decimal(self.balance)
+        free = Decimal(self.balance)
         locked = Decimal(self.locked)
-        free: Decimal = total - locked
+        total: Decimal = free + locked
         return AccountBalance(
             total=Money(total, currency),
             locked=Money(locked, currency),
@@ -92,7 +91,7 @@ class UpbitAsset(msgspec.Struct, frozen=True):
 
 
 class UpbitTrade(msgspec.Struct, frozen=True):
-    market: UpbitSymbol
+    market: str
     uuid: str
     price: str
     volume: str
@@ -145,24 +144,24 @@ class UpbitTrade(msgspec.Struct, frozen=True):
         )
 
 
-class UpbitOrder(msgspec.Struct, frozen=True):
+class UpbitOrder(msgspec.Struct, frozen=True, omit_defaults=True):
     uuid: str
     side: UpbitOrderSide
     ord_type: UpbitOrderType
-    price: str
     state: UpbitOrderStatus
-    market: UpbitSymbol
+    market: str
     created_at: str
-    volume: str
-    remaining_volume: str
     reserved_fee: str
     remaining_fee: str
     paid_fee: str
     locked: str
-    executed_volume: str
     trades_count: int
-    time_in_force: UpbitTimeInForce
-    trades: list[UpbitTrade] | None  # 주문 조회할 때만 들어온다
+    price: str | None = None
+    volume: str | None = None
+    executed_volume: str | None = None
+    remaining_volume: str | None = None
+    time_in_force: UpbitTimeInForce | None = None
+    trades: list[UpbitTrade] | None = None  # 주문 조회할 때만 들어온다
 
     def parse_to_order_status_report(
         self,
@@ -173,22 +172,16 @@ class UpbitOrder(msgspec.Struct, frozen=True):
         ts_init: int,
         identifier: str | None,
     ) -> OrderStatusReport:
-        if self.price is None:
-            raise ValueError("`price` was `None` when a value was expected")
         if self.side is None:
             raise ValueError("`side` was `None` when a value was expected")
         if self.ord_type is None:
             raise ValueError("`ord_type` was `None` when a value was expected")
-        if self.time_in_force is None:
-            raise ValueError("`time_in_force` was `None` when a value was expected")
         if self.state is None:
             raise ValueError("`state` was `None` when a value was expected")
 
         client_order_id = ClientOrderId(identifier) if identifier else None
         order_list_id = None
         contingency_type = ContingencyType.NO_CONTINGENCY
-
-        trigger_price = Decimal()
         trigger_type = TriggerType.NO_TRIGGER
 
         trailing_offset = None
@@ -221,13 +214,13 @@ class UpbitOrder(msgspec.Struct, frozen=True):
             contingency_type=contingency_type,
             time_in_force=enum_parser.parse_upbit_time_in_force(self.time_in_force),
             order_status=enum_parser.parse_upbit_order_status(self.state),
-            price=Price.from_str(self.price),
-            trigger_price=Price.from_str(str(trigger_price)),  # `decimal.Decimal`
+            price=Price.from_str(self.price) if self.price else None,
+            trigger_price=None,  # `decimal.Decimal`
             trigger_type=trigger_type,
             trailing_offset=trailing_offset,
             trailing_offset_type=trailing_offset_type,
-            quantity=Quantity.from_str(self.volume),
-            filled_qty=Quantity.from_str(self.executed_volume),
+            quantity=Quantity.from_str(self.volume if self.volume else self.price),
+            filled_qty=Quantity.from_str(self.executed_volume if self.executed_volume else "0"),
             avg_px=avg_px,
             post_only=post_only,
             reduce_only=reduce_only,
@@ -245,28 +238,28 @@ class UpbitOrder(msgspec.Struct, frozen=True):
 
 class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
     type: str
-    code: UpbitSymbol
+    code: str
     uuid: str
-    ask_bid: UpbitOrderSide
+    ask_bid: str  # The upper case of `UpbitOrderSide`
     order_type: UpbitOrderType
     state: UpbitOrderStatus
-    trade_uuid: str
-    price: float
-    avg_price: float
-    volume: float
-    remaining_volume: float
-    executed_volume: float
     trades_count: int
     reserved_fee: float
     remaining_fee: float
     paid_fee: float
     locked: float
     executed_funds: float
-    time_in_force: UpbitTimeInForce
-    trade_timestamp: int
     order_timestamp: int
     timestamp: int
     stream_type: str
+    price: float | None = None
+    avg_price: float | None = None
+    volume: float | None = None
+    remaining_volume: float | None = None
+    executed_volume: float | None = None
+    time_in_force: UpbitTimeInForce | None = None
+    trade_uuid: str | None = None
+    trade_timestamp: int | None = None
 
     def parse_to_order_status_report(
         self,
@@ -277,22 +270,28 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
         ts_init: int,
         identifier: str | None,
     ) -> OrderStatusReport:
-        if self.price is None:
-            raise ValueError("`price` was `None` when a value was expected")
+        print(self)
         if self.ask_bid is None:
             raise ValueError("`side` was `None` when a value was expected")
         if self.order_type is None:
             raise ValueError("`ord_type` was `None` when a value was expected")
-        if self.time_in_force is None:
-            raise ValueError("`time_in_force` was `None` when a value was expected")
         if self.state is None:
             raise ValueError("`state` was `None` when a value was expected")
 
+        side: UpbitOrderSide
+        if self.ask_bid == "BID":
+            side = UpbitOrderSide.BID
+        elif self.ask_bid == "ASK":
+            side = UpbitOrderSide.ASK
+        else:
+            raise ValueError(
+                f"Upbit promises that the side of websocket order is UPPER `ASK` or `BID`, was {self.ask_bid}"
+            )
+
+        print("Valid Order!")
         client_order_id = ClientOrderId(identifier) if identifier else None
         order_list_id = None
         contingency_type = ContingencyType.NO_CONTINGENCY
-
-        trigger_price = Decimal()
         trigger_type = TriggerType.NO_TRIGGER
 
         trailing_offset = None
@@ -307,18 +306,18 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             client_order_id=client_order_id,
             order_list_id=order_list_id,
             venue_order_id=VenueOrderId(str(self.uuid)),
-            order_side=enum_parser.parse_upbit_order_side(self.ask_bid),
+            order_side=enum_parser.parse_upbit_order_side(side),
             order_type=enum_parser.parse_upbit_order_type(self.order_type),
             contingency_type=contingency_type,
             time_in_force=enum_parser.parse_upbit_time_in_force(self.time_in_force),
             order_status=enum_parser.parse_upbit_order_status(self.state),
-            price=Price.from_str(str(self.price)),
-            trigger_price=Price.from_str(str(trigger_price)),  # `decimal.Decimal`
+            price=Price.from_str(self.price) if self.price else None,
+            trigger_price=None,  # `decimal.Decimal`
             trigger_type=trigger_type,
             trailing_offset=trailing_offset,
             trailing_offset_type=trailing_offset_type,
-            quantity=Quantity.from_str(str(self.volume)),
-            filled_qty=Quantity.from_str(str(self.executed_volume)),
+            quantity=Quantity.from_str(self.volume if self.volume else self.price),
+            filled_qty=Quantity.from_str(self.executed_volume if self.executed_volume else "0"),
             avg_px=Decimal(str(self.avg_price)),
             post_only=post_only,
             reduce_only=reduce_only,
@@ -360,9 +359,19 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
                 f'Only `state == "trade"` order can be parsed into trade, but "{self.state}"'
             )
 
+        side: UpbitOrderSide
+        if self.ask_bid == "BID":
+            side = UpbitOrderSide.BID
+        elif self.ask_bid == "ASK":
+            side = UpbitOrderSide.ASK
+        else:
+            raise ValueError(
+                f"Upbit promises that the side of websocket order is UPPER `ASK` or `BID`, was {self.ask_bid}"
+            )
+
         venue_position_id: PositionId | None
         if use_position_ids:
-            venue_position_id = PositionId(f"{instrument_id}-{self.ask_bid.value}")
+            venue_position_id = PositionId(f"{instrument_id}-{side.value}")
         else:
             venue_position_id = None
 
@@ -375,7 +384,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             venue_order_id=VenueOrderId(self.uuid),
             venue_position_id=venue_position_id,
             trade_id=TradeId(self.trade_uuid),
-            order_side=enum_parser.parse_upbit_order_side(self.ask_bid),
+            order_side=enum_parser.parse_upbit_order_side(side),
             last_qty=Quantity.from_str(self.volume),
             last_px=Price.from_str(self.price),
             liquidity_side=liquidity_side,
@@ -388,14 +397,14 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
 
 class UpbitWebSocketAssetUnit(msgspec.Struct, frozen=True):
     currency: str
-    balance: str
-    locked: str
+    balance: float
+    locked: float
 
     def parse_to_account_balance(self) -> AccountBalance:
         currency = Currency.from_str(self.currency)
-        total = Decimal(self.balance)
+        free = Decimal(self.balance)
         locked = Decimal(self.locked)
-        free: Decimal = total - locked
+        total: Decimal = free + locked
         return AccountBalance(
             total=Money(total, currency),
             locked=Money(locked, currency),
