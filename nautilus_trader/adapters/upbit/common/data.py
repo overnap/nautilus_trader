@@ -42,6 +42,7 @@ from nautilus_trader.adapters.upbit.common.enums import (
 )
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
 from nautilus_trader.adapters.upbit.common.types import UpbitBar, UpbitTicker
+from nautilus_trader.adapters.upbit.config import UpbitDataClientConfig
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
 from nautilus_trader.adapters.upbit.spot.providers import UpbitInstrumentProvider
@@ -127,15 +128,12 @@ class UpbitDataClient(LiveMarketDataClient):
         self,
         loop: asyncio.AbstractEventLoop,
         client: UpbitHttpClient,
-        market: UpbitMarketHttpAPI,
-        enum_parser: UpbitEnumParser,
         msgbus: MessageBus,
         cache: Cache,
         clock: LiveClock,
         instrument_provider: InstrumentProvider,
-        url_ws: str,
         name: str | None,
-        # config?
+        config: UpbitDataClientConfig,
     ) -> None:
         super().__init__(
             loop=loop,
@@ -157,17 +155,17 @@ class UpbitDataClient(LiveMarketDataClient):
 
         # HTTP API
         self._http_client = client
-        self._http_market = market
+        self._http_market = UpbitMarketHttpAPI(client)
 
         # Enum parser
-        self._enum_parser = enum_parser
+        self._enum_parser = UpbitEnumParser()
 
         # WebSocket API
         self._ws_client = UpbitWebSocketClient(
             clock=clock,
             handler=self._handle_ws_message,
             handler_reconnect=self._reconnect,
-            url=url_ws,
+            url=config.base_url_ws,
             loop=self._loop,
         )
 
@@ -180,7 +178,7 @@ class UpbitDataClient(LiveMarketDataClient):
         ] = {}
 
         self._log.info(f"Base url HTTP {self._http_client.base_url}", LogColor.BLUE)
-        self._log.info(f"Base url WebSocket {url_ws}", LogColor.BLUE)
+        self._log.info(f"Base url WebSocket {config.base_url_ws}", LogColor.BLUE)
 
         # Register common WebSocket message handlers
         self._ws_handlers = {
@@ -582,7 +580,7 @@ class UpbitDataClient(LiveMarketDataClient):
     async def _request_bars(  # (too complex)
         self,
         bar_type: BarType,
-        count: int,
+        limit: int,
         correlation_id: UUID4,
         start: pd.Timestamp | None = None,
         end: pd.Timestamp | None = None,
@@ -594,8 +592,8 @@ class UpbitDataClient(LiveMarketDataClient):
             )
             return
 
-        if start is None and end is None and count is None:
-            count = 200
+        if start is None and end is None and limit is None:
+            limit = 200
 
         start_time_ms = None
         if start is not None:
@@ -627,7 +625,7 @@ class UpbitDataClient(LiveMarketDataClient):
                 interval=interval,
                 start_time=start_time_ms,
                 end_time=end_time_ms,
-                limit=count if count > 0 else None,
+                limit=limit if limit > 0 else None,
                 ts_init=self._clock.timestamp_ns(),
             )
 
@@ -642,7 +640,7 @@ class UpbitDataClient(LiveMarketDataClient):
                 bar_type=bar_type,
                 start_time_ms=start_time_ms,
                 end_time_ms=end_time_ms,
-                count=count if count > 0 else None,
+                count=limit if limit > 0 else None,
             )
         else:
             self._log.error(f"Cannot infer INTERNAL time bars without `start_time` in Upbit")
@@ -926,8 +924,6 @@ if __name__ == "__main__":
     client = UpbitDataClient(
         loop,
         http_client,
-        UpbitMarketHttpAPI(http_client),
-        UpbitEnumParser(),
         msgbus,
         cache,
         clock,
@@ -936,8 +932,8 @@ if __name__ == "__main__":
             clock,
             config=InstrumentProviderConfig(load_all=True),
         ),
-        "wss://api.upbit.com/websocket/v1",
         None,
+        UpbitDataClientConfig(),
     )
 
     client.connect()

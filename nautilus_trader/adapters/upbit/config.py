@@ -16,6 +16,7 @@
 
 from nautilus_trader.adapters.binance.common.constants import BINANCE_VENUE
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
+from nautilus_trader.adapters.upbit.common.constants import UPBIT_VENUE
 from nautilus_trader.config import LiveDataClientConfig
 from nautilus_trader.config import LiveExecClientConfig
 from nautilus_trader.config import PositiveFloat
@@ -23,7 +24,7 @@ from nautilus_trader.config import PositiveInt
 from nautilus_trader.model.identifiers import Venue
 
 
-class BinanceDataClientConfig(LiveDataClientConfig, frozen=True):
+class UpbitDataClientConfig(LiveDataClientConfig, frozen=True):
     """
     Configuration for ``BinanceDataClient`` instances.
 
@@ -57,16 +58,12 @@ class BinanceDataClientConfig(LiveDataClientConfig, frozen=True):
 
     api_key: str | None = None
     api_secret: str | None = None
-    account_type: BinanceAccountType = BinanceAccountType.SPOT
-    base_url_http: str | None = None
-    base_url_ws: str | None = None
-    us: bool = False
-    testnet: bool = False
-    use_agg_trade_ticks: bool = False
-    venue: Venue = BINANCE_VENUE
+    base_url_http: str = "https://api.upbit.com/"
+    base_url_ws: str = "wss://api.upbit.com/websocket/v1"
+    venue: Venue = UPBIT_VENUE
 
 
-class BinanceExecClientConfig(LiveExecClientConfig, frozen=True):
+class UpbitExecClientConfig(LiveExecClientConfig, frozen=True):
     """
     Configuration for ``BinanceExecutionClient`` instances.
 
@@ -116,15 +113,8 @@ class BinanceExecClientConfig(LiveExecClientConfig, frozen=True):
 
     api_key: str | None = None
     api_secret: str | None = None
-    account_type: BinanceAccountType = BinanceAccountType.SPOT
-    base_url_http: str | None = None
-    base_url_ws: str | None = None
-    us: bool = False
-    testnet: bool = False
-    use_gtd: bool = True
-    use_reduce_only: bool = True
-    use_position_ids: bool = True
-    treat_expired_as_canceled: bool = False
-    max_retries: PositiveInt | None = None
-    retry_delay: PositiveFloat | None = None
+    base_url_http: str = "https://api.upbit.com/"
+    base_url_ws: str = "wss://api.upbit.com/websocket/v1/private"
+    max_retries: PositiveInt = 1
+    retry_delay: PositiveFloat = 1.0
     venue: Venue = BINANCE_VENUE

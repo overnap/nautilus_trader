@@ -28,7 +28,7 @@ from nautilus_trader.adapters.binance.common.enums import BinanceRateLimitType
 from nautilus_trader.adapters.binance.common.enums import BinanceSymbolFilterType
 from nautilus_trader.adapters.binance.common.types import BinanceBar
 from nautilus_trader.adapters.binance.common.types import BinanceTicker
-from nautilus_trader.adapters.upbit.common.enums import UpbitOrderSide
+from nautilus_trader.adapters.upbit.common.enums import UpbitOrderSideHttp, UpbitOrderSideWebSocket
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
 from nautilus_trader.adapters.upbit.common.types import UpbitBar, UpbitTicker
 from nautilus_trader.core.datetime import millis_to_nanos, dt_to_unix_nanos
@@ -78,7 +78,7 @@ class UpbitTrade(msgspec.Struct, frozen=True):
     trade_volume: float
     prev_closing_price: float
     change_price: float
-    ask_bid: str
+    ask_bid: UpbitOrderSideHttp
     sequential_id: int
 
     def parse_to_trade_tick(
@@ -286,7 +286,7 @@ class UpbitWebSocketTicker(msgspec.Struct):
     trade_date: str  # 최근 거래 일자 (UTC) (yyyyMMdd)
     trade_time: str  # 최근 거래 시각 (UTC) (HHmmss)
     trade_timestamp: int  # 체결 타임스탬프 (milliseconds)
-    ask_bid: UpbitOrderSide  # 매수/매도 구분 (ASK : 매도, BID : 매수)
+    ask_bid: UpbitOrderSideWebSocket  # 매수/매도 구분 (ASK : 매도, BID : 매수)
     acc_ask_volume: float  # 누적 매도량
     acc_bid_volume: float  # 누적 매수량
     highest_52_week_price: float  # 52주 최고가
@@ -334,7 +334,7 @@ class UpbitWebSocketTrade(msgspec.Struct):
     code: str  # 마켓 코드 (ex. KRW-BTC)
     trade_price: float  # 체결 가격
     trade_volume: float  # 체결량
-    ask_bid: UpbitOrderSide  # 매수/매도 구분
+    ask_bid: UpbitOrderSideWebSocket  # 매수/매도 구분
     prev_closing_price: float  # 전일 종가
     change: str  # 전일 대비
     change_price: float  # 부호 없는 전일 대비 값
@@ -356,10 +356,12 @@ class UpbitWebSocketTrade(msgspec.Struct):
         # TODO: market이랑 instrument 비교?
         return TradeTick(
             instrument_id=instrument_id,
-            price=Price.from_str(self.trade_price),
-            size=Quantity.from_str(self.trade_volume),
+            price=Price.from_str(str(self.trade_price)),
+            size=Quantity.from_str(str(self.trade_volume)),
             aggressor_side=(
-                AggressorSide.BUYER if self.ask_bid == UpbitOrderSide.BID else AggressorSide.SELLER
+                AggressorSide.BUYER
+                if self.ask_bid == UpbitOrderSideWebSocket.BID
+                else AggressorSide.SELLER
             ),
             trade_id=TradeId(str(self.sequential_id)),
             ts_event=millis_to_nanos(self.timestamp),

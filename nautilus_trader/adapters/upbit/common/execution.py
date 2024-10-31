@@ -56,6 +56,7 @@ from nautilus_trader.adapters.upbit.common.schemas.exchange import (
 )
 from nautilus_trader.adapters.upbit.common.schemas.market import UpbitWebSocketMsg
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
+from nautilus_trader.adapters.upbit.config import UpbitExecClientConfig
 from nautilus_trader.adapters.upbit.http.client import UpbitHttpClient
 from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
 from nautilus_trader.adapters.upbit.http.exchange import UpbitExchangeHttpAPI
@@ -160,16 +161,12 @@ class UpbitExecutionClient(LiveExecutionClient):
         self,
         loop: asyncio.AbstractEventLoop,
         client: UpbitHttpClient,
-        market: UpbitMarketHttpAPI,
-        exchange: UpbitExchangeHttpAPI,
-        enum_parser: UpbitEnumParser,
         msgbus: MessageBus,
         cache: Cache,
         clock: LiveClock,
         instrument_provider: InstrumentProvider,
-        base_url_ws: str,
         name: str | None,
-        config: BinanceExecClientConfig,
+        config: UpbitExecClientConfig,
     ) -> None:
         super().__init__(
             loop=loop,
@@ -185,15 +182,8 @@ class UpbitExecutionClient(LiveExecutionClient):
         )
 
         # Configuration
-        self._use_gtd: bool = config.use_gtd
-        self._use_reduce_only: bool = config.use_reduce_only
-        self._use_position_ids: bool = config.use_position_ids
-        self._max_retries: int = config.max_retries or 0
-        self._retry_delay: float = config.retry_delay or 1.0
-        self._log.info(f"{config.use_gtd=}", LogColor.BLUE)
-        self._log.info(f"{config.use_reduce_only=}", LogColor.BLUE)
-        self._log.info(f"{config.use_position_ids=}", LogColor.BLUE)
-        self._log.info(f"{config.treat_expired_as_canceled=}", LogColor.BLUE)
+        self._max_retries: int = config.max_retries
+        self._retry_delay: float = config.retry_delay
         self._log.info(f"{config.max_retries=}", LogColor.BLUE)
         self._log.info(f"{config.retry_delay=}", LogColor.BLUE)
 
@@ -202,19 +192,19 @@ class UpbitExecutionClient(LiveExecutionClient):
         )
 
         # Enum parser
-        self._enum_parser = enum_parser
+        self._enum_parser = UpbitEnumParser()
 
         # Http API
         self._http_client = client
-        self._http_market = market
-        self._http_exchange = exchange
+        self._http_market = UpbitMarketHttpAPI(client)
+        self._http_exchange = UpbitExchangeHttpAPI(client)
 
         # WebSocket API
         self._ws_client = UpbitWebSocketClient(
             clock=clock,
             handler=self._handle_ws_message,
             handler_reconnect=None,
-            url=base_url_ws,
+            url=config.base_url_ws,
             loop=self._loop,
             header=[("authorization", client.get_auth_without_data())],
         )
@@ -254,7 +244,7 @@ class UpbitExecutionClient(LiveExecutionClient):
         self._order_retries: dict[ClientOrderId, int] = {}
 
         self._log.info(f"Base url HTTP {self._http_client.base_url}", LogColor.BLUE)
-        self._log.info(f"Base url WebSocket {base_url_ws}", LogColor.BLUE)
+        self._log.info(f"Base url WebSocket {config.base_url_ws}", LogColor.BLUE)
 
     @property
     def use_position_ids(self) -> bool:
@@ -806,7 +796,7 @@ class UpbitExecutionClient(LiveExecutionClient):
                 venue_order_id=venue_order_id,
                 venue_position_id=None,
                 trade_id=TradeId(order_msg.trade_uuid),
-                order_side=self._enum_parser.parse_upbit_order_side(order_msg.ask_bid),
+                order_side=self._enum_parser.parse_upbit_order_side_http(order_msg.ask_bid),
                 order_type=self._enum_parser.parse_upbit_order_type(order_msg.order_type),
                 last_qty=Quantity(order_msg.volume),
                 last_px=Price(order_msg.price),
@@ -862,9 +852,6 @@ if __name__ == "__main__":
     client = UpbitExecutionClient(
         loop=loop,
         client=http_client,
-        market=UpbitMarketHttpAPI(http_client),
-        exchange=UpbitExchangeHttpAPI(http_client),
-        enum_parser=UpbitEnumParser(),
         msgbus=msgbus,
         cache=cache,
         clock=clock,
@@ -873,9 +860,8 @@ if __name__ == "__main__":
             clock,
             config=InstrumentProviderConfig(load_all=True),
         ),
-        base_url_ws="wss://api.upbit.com/websocket/v1/private",
         name=None,
-        config=BinanceExecClientConfig(),
+        config=UpbitExecClientConfig(),
     )
 
     client.connect()

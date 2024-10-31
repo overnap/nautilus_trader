@@ -68,7 +68,6 @@ class UpbitInstrumentProvider(InstrumentProvider):
         self,
         client: UpbitHttpClient,
         clock: LiveClock,
-        is_testnet: bool = False,
         config: InstrumentProviderConfig | None = None,
         venue: Venue = UPBIT_VENUE,
     ):
@@ -76,7 +75,6 @@ class UpbitInstrumentProvider(InstrumentProvider):
 
         self._clock = clock
         self._client = client
-        self._is_testnet = is_testnet
         self._venue = venue
 
         self._http_market = UpbitMarketHttpAPI(self._client)

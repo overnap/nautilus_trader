@@ -28,7 +28,8 @@ from nautilus_trader.adapters.upbit.common.enums import (
     UpbitEnumParser,
     UpbitOrderType,
     UpbitOrderStatus,
-    UpbitOrderSide,
+    UpbitOrderSideHttp,
+    UpbitOrderSideWebSocket,
     UpbitTimeInForce,
     UpbitTradeFee,
 )
@@ -96,7 +97,7 @@ class UpbitTrade(msgspec.Struct, frozen=True):
     price: str
     volume: str
     funds: str
-    side: UpbitOrderSide
+    side: UpbitOrderSideHttp
     created_at: str
 
     def parse_to_fill_report(
@@ -146,7 +147,7 @@ class UpbitTrade(msgspec.Struct, frozen=True):
 
 class UpbitOrder(msgspec.Struct, frozen=True, omit_defaults=True):
     uuid: str
-    side: UpbitOrderSide
+    side: UpbitOrderSideHttp
     ord_type: UpbitOrderType
     state: UpbitOrderStatus
     market: str
@@ -240,7 +241,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
     type: str
     code: str
     uuid: str
-    ask_bid: str  # The upper case of `UpbitOrderSide`
+    ask_bid: UpbitOrderSideWebSocket
     order_type: UpbitOrderType
     state: UpbitOrderStatus
     trades_count: int
@@ -272,21 +273,11 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
     ) -> OrderStatusReport:
         print(self)
         if self.ask_bid is None:
-            raise ValueError("`side` was `None` when a value was expected")
+            raise ValueError("`ask_bid` was `None` when a value was expected")
         if self.order_type is None:
             raise ValueError("`ord_type` was `None` when a value was expected")
         if self.state is None:
             raise ValueError("`state` was `None` when a value was expected")
-
-        side: UpbitOrderSide
-        if self.ask_bid == "BID":
-            side = UpbitOrderSide.BID
-        elif self.ask_bid == "ASK":
-            side = UpbitOrderSide.ASK
-        else:
-            raise ValueError(
-                f"Upbit promises that the side of websocket order is UPPER `ASK` or `BID`, was {self.ask_bid}"
-            )
 
         print("Valid Order!")
         client_order_id = ClientOrderId(identifier) if identifier else None
@@ -306,7 +297,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             client_order_id=client_order_id,
             order_list_id=order_list_id,
             venue_order_id=VenueOrderId(str(self.uuid)),
-            order_side=enum_parser.parse_upbit_order_side(side),
+            order_side=enum_parser.parse_upbit_order_side(self.ask_bid),
             order_type=enum_parser.parse_upbit_order_type(self.order_type),
             contingency_type=contingency_type,
             time_in_force=enum_parser.parse_upbit_time_in_force(self.time_in_force),
@@ -359,19 +350,9 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
                 f'Only `state == "trade"` order can be parsed into trade, but "{self.state}"'
             )
 
-        side: UpbitOrderSide
-        if self.ask_bid == "BID":
-            side = UpbitOrderSide.BID
-        elif self.ask_bid == "ASK":
-            side = UpbitOrderSide.ASK
-        else:
-            raise ValueError(
-                f"Upbit promises that the side of websocket order is UPPER `ASK` or `BID`, was {self.ask_bid}"
-            )
-
         venue_position_id: PositionId | None
         if use_position_ids:
-            venue_position_id = PositionId(f"{instrument_id}-{side.value}")
+            venue_position_id = PositionId(f"{instrument_id}-{self.ask_bid.value}")
         else:
             venue_position_id = None
 
@@ -384,7 +365,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             venue_order_id=VenueOrderId(self.uuid),
             venue_position_id=venue_position_id,
             trade_id=TradeId(self.trade_uuid),
-            order_side=enum_parser.parse_upbit_order_side(side),
+            order_side=enum_parser.parse_upbit_order_side(self.ask_bid),
             last_qty=Quantity.from_str(self.volume),
             last_px=Price.from_str(self.price),
             liquidity_side=liquidity_side,

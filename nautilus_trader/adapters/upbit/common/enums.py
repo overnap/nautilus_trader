@@ -186,13 +186,23 @@ class BinanceAccountType(Enum):
 
 
 @unique
-class UpbitOrderSide(Enum):
+class UpbitOrderSideHttp(Enum):
     """
     Represents a Binance order side.
     """
 
     ASK = "ask"
     BID = "bid"
+
+
+@unique
+class UpbitOrderSideWebSocket(Enum):
+    """
+    Represents a Binance order side.
+    """
+
+    ASK = "ASK"
+    BID = "BID"
 
 
 @unique
@@ -491,11 +501,16 @@ class UpbitEnumParser:
             UpbitOrderStatus.DONE: OrderStatus.FILLED,
         }
 
-        self.ext_to_int_order_side = {
-            UpbitOrderSide.BID: OrderSide.BUY,
-            UpbitOrderSide.ASK: OrderSide.SELL,
+        self.ext_to_int_order_side_http = {
+            UpbitOrderSideHttp.BID: OrderSide.BUY,
+            UpbitOrderSideHttp.ASK: OrderSide.SELL,
         }
-        self.int_to_ext_order_side = {b: a for a, b in self.ext_to_int_order_side.items()}
+        self.int_to_ext_order_side_http = {b: a for a, b in self.ext_to_int_order_side_http.items()}
+
+        self.ext_to_int_order_side_websocket = {
+            UpbitOrderSideWebSocket.BID: OrderSide.BUY,
+            UpbitOrderSideWebSocket.ASK: OrderSide.SELL,
+        }
 
         self.ext_to_int_bar_agg = {
             # "s": BarAggregation.SECOND, # TODO: 업비트에 없음.
@@ -534,17 +549,25 @@ class UpbitEnumParser:
             OrderType.MARKET_TO_LIMIT,
         }
 
-    def parse_upbit_order_side(self, order_side: UpbitOrderSide) -> OrderSide:
+    def parse_upbit_order_side_http(self, order_side: UpbitOrderSideHttp) -> OrderSide:
         try:
-            return self.ext_to_int_order_side[order_side]
+            return self.ext_to_int_order_side_http[order_side]
         except KeyError:
             raise RuntimeError(  # pragma: no cover (design-time error)
                 f"unrecognized Upbit order side, was {order_side}",  # pragma: no cover
             )
 
-    def parse_internal_order_side(self, order_side: OrderSide) -> UpbitOrderSide:
+    def parse_upbit_order_side_websocket(self, order_side: UpbitOrderSideWebSocket) -> OrderSide:
         try:
-            return self.int_to_ext_order_side[order_side]
+            return self.ext_to_int_order_side_websocket[order_side]
+        except KeyError:
+            raise RuntimeError(  # pragma: no cover (design-time error)
+                f"unrecognized Upbit order side, was {order_side}",  # pragma: no cover
+            )
+
+    def parse_internal_order_side(self, order_side: OrderSide) -> UpbitOrderSideHttp:
+        try:
+            return self.int_to_ext_order_side_http[order_side]
         except KeyError:
             raise RuntimeError(  # pragma: no cover (design-time error)
                 f"unrecognized Nautilus order side, was {order_side}",  # pragma: no cover
@@ -575,7 +598,7 @@ class UpbitEnumParser:
             )
 
     def parse_upbit_order_type(
-        self, order_type: UpbitOrderType, side: UpbitOrderSide | None = None
+        self, order_type: UpbitOrderType, side: UpbitOrderSideHttp | None = None
     ) -> OrderType:
         try:
             return self.ext_to_int_order_type[order_type]

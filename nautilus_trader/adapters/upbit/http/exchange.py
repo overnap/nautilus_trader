@@ -3,7 +3,8 @@ from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 
 from nautilus_trader.adapters.upbit.common.enums import (
     UpbitSecurityType,
-    UpbitOrderSide,
+    UpbitOrderSideHttp,
+    UpbitOrderSideWebSocket,
     UpbitOrderType,
     UpbitTimeInForce,
 )
@@ -104,7 +105,7 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
 
     class PostParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         market: str
-        side: UpbitOrderSide
+        side: UpbitOrderSideHttp
         ord_type: UpbitOrderType
         volume: str | None = None
         price: str | None = None
@@ -155,8 +156,8 @@ class UpbitExchangeHttpAPI:
         """
         return await self._endpoint_order.get(
             params=self._endpoint_order.GetDeleteParameters(
-                uuid=venue_order_id,
-                identifier=client_order_id,
+                uuid=venue_order_id.value,
+                identifier=client_order_id.value,
             ),
         )
 
@@ -170,15 +171,15 @@ class UpbitExchangeHttpAPI:
         """
         return await self._endpoint_order.delete(
             params=self._endpoint_order.GetDeleteParameters(
-                uuid=venue_order_id,
-                identifier=client_order_id,
+                uuid=venue_order_id.value,
+                identifier=client_order_id.value,
             ),
         )
 
     async def new_order(
         self,
         market: UpbitSymbol,
-        side: UpbitOrderSide,
+        side: UpbitOrderSideHttp,
         order_type: UpbitOrderType,
         time_in_force: UpbitTimeInForce | None = None,
         volume: Quantity | None = None,
