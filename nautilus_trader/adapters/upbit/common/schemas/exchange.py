@@ -279,7 +279,6 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
         if self.state is None:
             raise ValueError("`state` was `None` when a value was expected")
 
-        print("Valid Order!")
         client_order_id = ClientOrderId(identifier) if identifier else None
         order_list_id = None
         contingency_type = ContingencyType.NO_CONTINGENCY
@@ -318,7 +317,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             ts_init=ts_init,
         )
 
-    def calculate_commission(self) -> Money:
+    def calculate_commission(self) -> Money | None:
         commission: Money | None
         # Hard coded market quotient extraction
         quote = self.code.split("-")[0]
@@ -352,7 +351,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
 
         venue_position_id: PositionId | None
         if use_position_ids:
-            venue_position_id = PositionId(f"{instrument_id}-{self.ask_bid.value}")
+            venue_position_id = PositionId(f"{instrument_id}-{self.ask_bid.value.lower()}")
         else:
             venue_position_id = None
 

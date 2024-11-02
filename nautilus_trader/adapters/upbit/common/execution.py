@@ -394,55 +394,58 @@ class UpbitExecutionClient(LiveExecutionClient):
         open_only: bool = False,
     ) -> list[OrderStatusReport]:
         self._log.info("Requesting OrderStatusReports...")
-        raise NotImplementedError  # TODO: HTTP API부터 짜야함
-        # try:
-        #     # Check Binance for all order active symbols
-        #     symbol = instrument_id.symbol.value if instrument_id is not None else None
-        #     active_symbols = self._get_cache_active_symbols()
-        #     active_symbols.update(await self._get_binance_active_position_symbols(symbol))
-        #     binance_open_orders = await self._http_account.query_open_orders(symbol)
-        #     for order in binance_open_orders:
-        #         active_symbols.add(order.symbol)
-        #     # Get all orders for those active symbols
-        #     binance_orders: list[BinanceOrder] = []
-        #     for symbol in active_symbols:
-        #         # Here we don't pass a `start_time` or `end_time` as order reports appear to go
-        #         # randomly missing when these are specified. We filter on the Nautilus side below.
-        #         # Explicitly setting limit to the max lookback of 1000, in the future we should
-        #         # add pagination.
-        #         response = await self._http_account.query_all_orders(symbol=symbol, limit=1_000)
-        #         binance_orders.extend(response)
-        # except BinanceError as e:
-        #     self._log.exception(f"Cannot generate OrderStatusReport: {e.message}", e)
-        #     return []
-        #
-        # start_ms = secs_to_millis(start.timestamp()) if start is not None else None
-        # end_ms = secs_to_millis(end.timestamp()) if end is not None else None
-        #
-        # reports: list[OrderStatusReport] = []
-        # for order in binance_orders:
-        #     if start_ms is not None and order.time < start_ms:
-        #         continue  # Filter start on the Nautilus side
-        #     if end_ms is not None and order.time > end_ms:
-        #         continue  # Filter end on the Nautilus side
-        #     if order.origQty and Decimal(order.origQty) == 0:
-        #         continue  # Cannot parse zero quantity order (filter for Binance)
-        #     report = order.parse_to_order_status_report(
-        #         account_id=self.account_id,
-        #         instrument_id=self._get_cached_instrument_id(order.symbol),
-        #         report_id=UUID4(),
-        #         enum_parser=self._enum_parser,
-        #         treat_expired_as_canceled=self._treat_expired_as_canceled,
-        #         ts_init=self._clock.timestamp_ns(),
-        #     )
-        #     self._log.debug(f"Received {reports}")
-        #     reports.append(report)
-        #
-        # len_reports = len(reports)
-        # plural = "" if len_reports == 1 else "s"
-        # self._log.info(f"Received {len(reports)} OrderStatusReport{plural}")
-        #
-        # return reports
+        try:
+            symbols: set[str] = {}
+            if instrument_id is not None:
+                symbols.add(instrument_id.symbol.value)
+            else:
+                symbols = self._get_cache_active_symbols()
+                # TODO: 어떻게 캐시에 안들어있는 심볼을 얻어낼 것인가? asset으로 읽는 건 매도 걸려있는 주문만 가능
+                # assets = await self._http_exchange.query_asset()
+
+            upbit_orders: list[UpbitOrder] = []
+            for symbol in symbols:
+                response = await self._http_exchange.query_orders(
+                    market=UpbitSymbol(symbol),
+                    is_open=True,
+                    start_time=start,
+                    end_time=end,
+                )
+                upbit_orders.extend(response)
+
+            if not open_only:
+                for symbol in symbols:
+                    response = await self._http_exchange.query_orders(
+                        market=UpbitSymbol(symbol),
+                        is_open=False,
+                        start_time=start,
+                        end_time=end,
+                    )
+                    upbit_orders.extend(response)
+
+        except BinanceError as e:
+            self._log.exception(f"Cannot generate OrderStatusReport: {e.message}", e)
+            return []
+
+        reports: list[OrderStatusReport] = []
+        for order in upbit_orders:
+            client_id = self._cache.client_order_id(VenueOrderId(order.uuid))
+            report = order.parse_to_order_status_report(
+                self.account_id,
+                instrument_id=self._get_cached_instrument_id(order.market),
+                report_id=UUID4(),
+                enum_parser=self._enum_parser,
+                ts_init=self._clock.timestamp_ns(),
+                identifier=client_id.to_str() if client_id else None,
+            )
+            self._log.debug(f"Received {report}")
+            reports.append(report)
+
+        len_reports = len(reports)
+        plural = "" if len_reports == 1 else "s"
+        self._log.info(f"Received {len(reports)} OrderStatusReport{plural}")
+
+        return reports
 
     async def generate_fill_reports(
         self,
@@ -452,47 +455,66 @@ class UpbitExecutionClient(LiveExecutionClient):
         end: pd.Timestamp | None = None,
     ) -> list[FillReport]:
         self._log.info("Requesting FillReports...")
-        raise NotImplementedError
-        # TODO: order_id가 정해지는 경우 주문 쿼리에서 긁어오기
-        # TODO: start/end만 주어지거나 필터가 아예 없으면 그냥 다봐야함
 
-        # try:
-        #     # Check Binance for all trades on active symbols
-        #     symbol = instrument_id.symbol.value if instrument_id is not None else None
-        #     active_symbols = self._get_cache_active_symbols()
-        #     active_symbols.update(await self._get_binance_active_position_symbols(symbol))
-        #     binance_trades: list[BinanceUserTrade] = []
-        #     for symbol in active_symbols:
-        #         response = await self._http_exchange.query_order(venue_order_id=venue_order_id)
-        #         binance_trades.extend(response)
-        # except BinanceError as e:
-        #     self._log.exception(f"Cannot generate FillReport: {e.message}", e)
-        #     return []
-        #
-        # # Parse all Binance trades
-        # reports: list[FillReport] = []
-        # for trade in binance_trades:
-        #     if trade.symbol is None:
-        #         self._log.warning(f"No symbol for trade {trade}")
-        #         continue
-        #     report = trade.parse_to_fill_report(
-        #         account_id=self.account_id,
-        #         instrument_id=self._get_cached_instrument_id(trade.symbol),
-        #         report_id=UUID4(),
-        #         ts_init=self._clock.timestamp_ns(),
-        #         use_position_ids=self._use_position_ids,
-        #     )
-        #     self._log.debug(f"Received {report}")
-        #     reports.append(report)
-        #
-        # # Confirm sorting in ascending order
-        # reports = sorted(reports, key=lambda x: x.trade_id)
-        #
-        # len_reports = len(reports)
-        # plural = "" if len_reports == 1 else "s"
-        # self._log.info(f"Received {len(reports)} FillReport{plural}")
-        #
-        # return reports
+        try:
+            upbit_orders: list[UpbitOrder] = []
+            if venue_order_id:
+                upbit_orders.append(await self._http_exchange.query_order(venue_order_id))
+            if instrument_id is not None or not venue_order_id:
+                symbols: set[str] = {}
+                if instrument_id is not None:
+                    symbols.add(instrument_id.symbol.value)
+                else:
+                    symbols = self._get_cache_active_symbols()
+                    # TODO: 어떻게 캐시에 안들어있는 심볼을 얻어낼 것인가? asset으로 읽는 건 매도 걸려있는 주문만 가능
+                    # assets = await self._http_exchange.query_asset()
+
+                for symbol in symbols:
+                    response = await self._http_exchange.query_orders(
+                        market=UpbitSymbol(symbol),
+                        is_open=True,
+                        start_time=start,
+                        end_time=end,
+                    )
+                    upbit_orders.extend(response)
+
+        except BinanceError as e:
+            self._log.exception(f"Cannot generate FillReport: {e.message}", e)
+            return []
+
+        # Parse all Upbit trades
+        reports: list[FillReport] = []
+        for order in upbit_orders:
+            if order.trades is not None:
+                for trade in order.trades:
+                    report = trade.parse_to_fill_report(
+                        account_id=self.account_id,
+                        instrument_id=self._get_cached_instrument_id(trade.market),
+                        report_id=UUID4(),
+                        enum_parser=self._enum_parser,
+                        ts_init=self._clock.timestamp_ns(),
+                        order_id=VenueOrderId(order.uuid),
+                        # use_position_ids=self._use_position_ids, # TODO: 필요한가 체크
+                    )
+                    self._log.debug(f"Received {report}")
+                    reports.append(report)
+
+        # Confirm sorting in ascending order
+        reports = sorted(reports, key=lambda x: x.trade_id)
+
+        len_reports = len(reports)
+        plural = "" if len_reports == 1 else "s"
+        self._log.info(f"Received {len(reports)} FillReport{plural}")
+
+        return reports
+
+    async def generate_position_status_reports(
+        self,
+        instrument_id: InstrumentId | None = None,
+        start: pd.Timestamp | None = None,
+        end: pd.Timestamp | None = None,
+    ) -> list[PositionStatusReport]:
+        return []
 
     # -- COMMAND HANDLERS -------------------------------------------------------------------------
 
@@ -544,12 +566,8 @@ class UpbitExecutionClient(LiveExecutionClient):
             )
             return
 
-    def _should_retry(self, error_code: BinanceErrorCode, retries: int) -> bool:
-        if (
-            error_code not in self._retry_errors
-            or not self._max_retries
-            or retries > self._max_retries
-        ):
+    def _should_retry(self, name: str, retries: int) -> bool:
+        if name not in self._retry_errors or not self._max_retries or retries > self._max_retries:
             return False
         return True
 
@@ -593,23 +611,23 @@ class UpbitExecutionClient(LiveExecutionClient):
             except KeyError:
                 raise RuntimeError(f"unsupported order type, was {order.order_type}")
             except BinanceError as e:
-                error_code = BinanceErrorCode(e.message["code"])
+                error_name = e.message["error"]["name"]
 
                 retries = self._order_retries.get(order.client_order_id, 0) + 1
                 self._order_retries[order.client_order_id] = retries
 
-                if not self._should_retry(error_code, retries):
+                if not self._should_retry(error_name, retries):
                     self.generate_order_rejected(
                         strategy_id=order.strategy_id,
                         instrument_id=order.instrument_id,
                         client_order_id=order.client_order_id,
-                        reason=str(e.message),
+                        reason=error_name,
                         ts_event=self._clock.timestamp_ns(),
                     )
                     break
 
                 self._log.warning(
-                    f"{error_code.name}: retrying {order.client_order_id!r} "
+                    f"{error_name}: retrying {order.client_order_id!r} "
                     f"{retries}/{self._max_retries} in {self._retry_delay}s",
                 )
                 await asyncio.sleep(self._retry_delay)
@@ -750,8 +768,6 @@ class UpbitExecutionClient(LiveExecutionClient):
             self._ws_handlers[msg.type](raw)
         except Exception as e:
             self._log.exception(f"Error on handling {raw!r}", e)
-            print(e)
-            traceback.print_exc()  # FIXME: 삭제
 
     def _handle_order_update(self, raw: bytes) -> None:
         order_msg = self._decoder_order_update.decode(raw)

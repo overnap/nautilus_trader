@@ -74,6 +74,7 @@ class UpbitCandleInterval(Enum):
     Represents a `Binance` kline chart interval.
     """
 
+    SECOND_1 = "1s"
     MINUTE_1 = "1m"
     MINUTE_3 = "3m"
     MINUTE_5 = "5m"
@@ -232,6 +233,16 @@ class UpbitOrderStatus(Enum):
     TRADE = "trade"  # 체결 발생
     DONE = "done"  # 전체 체결 완료
     CANCEL = "cancel"  # 주문 취소
+
+
+@unique
+class UpbitOrderBy(Enum):
+    """
+    Represents a Binance order status.
+    """
+
+    ASC = "asc"
+    DESC = "desc"
 
 
 @unique
@@ -513,7 +524,7 @@ class UpbitEnumParser:
         }
 
         self.ext_to_int_bar_agg = {
-            # "s": BarAggregation.SECOND, # TODO: 업비트에 없음.
+            "s": BarAggregation.SECOND,
             "m": BarAggregation.MINUTE,
             "h": BarAggregation.HOUR,
             "d": BarAggregation.DAY,

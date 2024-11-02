@@ -7,6 +7,8 @@ from nautilus_trader.adapters.upbit.common.enums import (
     UpbitOrderSideWebSocket,
     UpbitOrderType,
     UpbitTimeInForce,
+    UpbitOrderStatus,
+    UpbitOrderBy,
 )
 from nautilus_trader.adapters.upbit.common.schemas.exchange import UpbitAsset, UpbitOrder
 from nautilus_trader.adapters.upbit.common.symbol import UpbitSymbol
@@ -17,6 +19,8 @@ from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.model.identifiers import VenueOrderId, ClientOrderId
 
 from nautilus_trader.model.objects import Quantity, Price
+
+import pandas as pd
 
 
 class UpbitAccountsHttp(UpbitHttpEndpoint):
@@ -102,6 +106,7 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
         )
 
         self._post_resp_decoder = msgspec.json.Decoder(UpbitOrder)
+        self._get_resp_decoder = msgspec.json.Decoder(list[UpbitOrder])
 
     class PostParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         market: str
@@ -111,6 +116,23 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
         price: str | None = None
         identifier: str | None = None
         time_in_force: UpbitTimeInForce | None = None
+
+    class GetOpenParameters(msgspec.Struct, omit_defaults=True, frozen=True):
+        market: str
+        limit: int = 100
+        order_by: UpbitOrderBy = UpbitOrderBy.DESC
+        # TODO: 나중에 구현할 필요가 있을 수도 있음. 지금 인터페이스로는 크게 필요 없어 보임.
+        # states: list[UpbitOrderStatus] = [UpbitOrderStatus.WAIT, UpbitOrderStatus.WATCH]
+        # page: int = 1
+
+    class GetClosedParameters(msgspec.Struct, omit_defaults=True, frozen=True):
+        market: str
+        start_time: str | None = None
+        end_time: str | None = None
+        limit: int = 1000
+        order_by: UpbitOrderBy = UpbitOrderBy.DESC
+        # TODO: 나중에 구현할 필요가 있을 수도 있음. 지금 인터페이스로는 크게 필요 없어 보임.
+        # states: list[UpbitOrderStatus] = [UpbitOrderStatus.CANCEL, UpbitOrderStatus.DONE]
 
     async def post(self, params: PostParameters) -> UpbitOrder:
         if (
@@ -122,10 +144,27 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
         ) and params.price is None:
             raise ValueError(f"Post `ord_type == {params.ord_type.name}` order without `price`!")
 
-        print("ORDER! ", params)
         method_type = HttpMethod.POST
         raw = await self._method(method_type, params)
         return self._post_resp_decoder.decode(raw)
+
+    async def get_open(self, params: GetOpenParameters) -> list[UpbitOrder]:
+        if params.page < 1:
+            raise ValueError(f"`page` must be greater or equal than 1, was {params.page}")
+        if params.limit < 1 or params.limit > 100:
+            raise ValueError(f"`limit` must be in range [1, 100], was {params.limit}")
+
+        method_type = HttpMethod.GET
+        raw = await self._method(method_type, params, add_path="open")
+        return self._get_resp_decoder.decode(raw)
+
+    async def get_closed(self, params: GetClosedParameters) -> list[UpbitOrder]:
+        if params.limit < 1 or params.limit > 1000:
+            raise ValueError(f"`limit` must be in range [1, 1000], was {params.limit}")
+
+        method_type = HttpMethod.GET
+        raw = await self._method(method_type, params, add_path="closed")
+        return self._get_resp_decoder.decode(raw)
 
 
 class UpbitExchangeHttpAPI:
@@ -156,8 +195,8 @@ class UpbitExchangeHttpAPI:
         """
         return await self._endpoint_order.get(
             params=self._endpoint_order.GetDeleteParameters(
-                uuid=venue_order_id.value,
-                identifier=client_order_id.value,
+                uuid=venue_order_id.value if venue_order_id else None,
+                identifier=client_order_id.value if client_order_id else None,
             ),
         )
 
@@ -200,3 +239,41 @@ class UpbitExchangeHttpAPI:
                 time_in_force=time_in_force,
             ),
         )
+
+    async def query_orders(
+        self,
+        market: UpbitSymbol,
+        is_open: bool,
+        start_time: pd.Timestamp | None = None,
+        end_time: pd.Timestamp | None = None,
+    ) -> list[UpbitOrder]:
+        """
+        Query orders information
+        """
+
+        if is_open:
+            orders = await self._endpoint_orders.get_open(
+                params=self._endpoint_orders.GetOpenParameters(
+                    market=str(market),
+                )
+            )
+
+            if start_time or end_time:
+                orders_filtered = []
+                for order in orders:
+                    dt = pd.to_datetime(order.created_at, format="ISO8601")
+                    if (start_time is None or start_time <= dt) and (
+                        end_time is None or dt <= end_time
+                    ):
+                        orders_filtered.append(order)
+                return orders_filtered
+            else:
+                return orders
+        else:
+            return await self._endpoint_orders.get_closed(
+                params=self._endpoint_orders.GetClosedParameters(
+                    market=str(market),
+                    start_time=start_time.isoformat(),
+                    end_time=end_time.isoformat(),
+                )
+            )

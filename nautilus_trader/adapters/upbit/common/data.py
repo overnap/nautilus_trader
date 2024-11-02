@@ -442,7 +442,9 @@ class UpbitDataClient(LiveMarketDataClient):
         resolution = self._enum_parser.parse_nautilus_bar_aggregation(bar_type.spec.aggregation)
 
         interval_ns: int
-        if resolution == "m":
+        if resolution == "s":
+            interval_ns = 1000000000
+        elif resolution == "m":
             interval_ns = 60000000000
         elif resolution == "h":
             interval_ns = 3600000000000
@@ -453,7 +455,7 @@ class UpbitDataClient(LiveMarketDataClient):
         elif resolution == "M":
             interval_ns = 2629800000000000
         else:
-            self._log.error("Bar resolution not supported by Upbit")
+            self._log.error(f"Bar resolution not supported by Upbit, was {resolution}")
             return
         interval_ns *= bar_type.spec.step
 
@@ -468,6 +470,8 @@ class UpbitDataClient(LiveMarketDataClient):
             )
             return
 
+        delay_server = 0.1  # Hardcoded delay for waiting Upbit
+        delay_client = interval_ns / 3e10  # Hardcoded delay for loop; interval / 30
         while True:
             # This may be called multiple times as Upbit does not provide immediately
             while last_time + interval_ns <= self._clock.timestamp_ns():
@@ -480,9 +484,9 @@ class UpbitDataClient(LiveMarketDataClient):
                     last_time = bar.ts_event
                     self._handle_data(bar)
                 else:
-                    await asyncio.sleep(0.25)  # Hardcoded delay for waiting Upbit
+                    await asyncio.sleep(delay_server)
 
-            await asyncio.sleep(2)  # Hardcoded delay for loop
+            await asyncio.sleep(delay_client)
 
     async def _unsubscribe_instruments(self) -> None:
         pass  # Do nothing further

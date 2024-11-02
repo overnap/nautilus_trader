@@ -152,6 +152,8 @@ class UpbitCandlesHttp(UpbitHttpEndpoint):
 
         add_path = None
         match interval:
+            case UpbitCandleInterval.SECOND_1:
+                add_path = "seconds"
             case UpbitCandleInterval.MINUTE_1:
                 add_path = "minutes/1"
             case UpbitCandleInterval.MINUTE_3:
