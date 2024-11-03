@@ -79,6 +79,8 @@ class UpbitTradesHttp(UpbitHttpEndpoint):
         )
         self._get_resp_decoder = msgspec.json.Decoder(list[UpbitTrade])
 
+        self.limit_key = "trades"
+
     class GetParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         """
         GET parameters for recent trades.
@@ -101,7 +103,7 @@ class UpbitTradesHttp(UpbitHttpEndpoint):
 
     async def get(self, params: GetParameters) -> list[UpbitTrade]:
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params)
+        raw = await self._method(method_type, params, ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
 
@@ -128,6 +130,8 @@ class UpbitCandlesHttp(UpbitHttpEndpoint):
             url_path,
         )
         self._get_resp_decoder = msgspec.json.Decoder(list[UpbitCandle])
+
+        self.limit_key = "candles"
 
     class GetParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         """
@@ -177,7 +181,7 @@ class UpbitCandlesHttp(UpbitHttpEndpoint):
             case UpbitCandleInterval.MONTH_1:
                 add_path = "months"
 
-        raw = await self._method(method_type, params, add_path=f"/{add_path}")
+        raw = await self._method(method_type, params, add_path=f"/{add_path}", ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
 
@@ -213,6 +217,8 @@ class UpbitTickerHttp(UpbitHttpEndpoint):
         )
         self._get_resp_decoder = msgspec.json.Decoder(list[UpbitTickerResponse])
 
+        self.limit_key = "ticker"
+
     class GetParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         """
         GET parameters for price ticker.
@@ -232,7 +238,7 @@ class UpbitTickerHttp(UpbitHttpEndpoint):
 
     async def get(self, params: GetParameters) -> list[UpbitTickerResponse]:
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params)
+        raw = await self._method(method_type, params, ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
 
@@ -268,6 +274,8 @@ class UpbitOrderbookHttp(UpbitHttpEndpoint):
         )
         self._get_resp_decoder = msgspec.json.Decoder(list[UpbitOrderbook])
 
+        self.limit_key = "orderbook"
+
     class GetParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         """
         GET parameters for order book ticker.
@@ -285,7 +293,7 @@ class UpbitOrderbookHttp(UpbitHttpEndpoint):
     async def get(self, params: GetParameters) -> list[UpbitOrderbook]:
         method_type = HttpMethod.GET
 
-        raw = await self._method(method_type, params)
+        raw = await self._method(method_type, params, ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
 
@@ -317,9 +325,11 @@ class UpbitCodeInfoHttp(UpbitHttpEndpoint):
         )
         self._get_resp_decoder = msgspec.json.Decoder(list[UpbitCodeInfo])
 
+        self.limit_key = "market"
+
     async def get(self) -> list[UpbitCodeInfo]:
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params=None)
+        raw = await self._method(method_type, params=None, ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
 
@@ -503,6 +513,8 @@ class UpbitMarketHttpAPI:
 
         bars_list: list[list[UpbitBar]] = []
         while True:
+            if len(bars_list) > 0:
+                await asyncio.sleep(0.25)  # Hardcoded delay to avoid rate limit
             candles = await self.query_candles(
                 symbol=bar_type.instrument_id.symbol.value,
                 interval=interval,
@@ -565,6 +577,7 @@ class UpbitMarketHttpAPI:
             interval=interval,
             count=1,
         )
+
         bars: list[UpbitBar] = [
             candle.parse_to_upbit_bar(bar_type, ts_init) for candle in reversed(candles)
         ]

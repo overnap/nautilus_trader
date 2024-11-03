@@ -15,6 +15,7 @@
 
 import asyncio
 import decimal
+import traceback
 from decimal import Decimal
 
 import msgspec
@@ -171,11 +172,6 @@ class UpbitDataClient(LiveMarketDataClient):
 
         # Hot caches
         self._instrument_ids: dict[str, InstrumentId] = {}
-        self._book_depths: dict[InstrumentId, int | None] = {}
-        self._book_buffer: dict[
-            InstrumentId,
-            list[OrderBookDelta | OrderBookDeltas],
-        ] = {}
 
         self._log.info(f"Base url HTTP {self._http_client.base_url}", LogColor.BLUE)
         self._log.info(f"Base url WebSocket {config.base_url_ws}", LogColor.BLUE)
@@ -184,7 +180,7 @@ class UpbitDataClient(LiveMarketDataClient):
         self._ws_handlers = {
             UpbitWebSocketType.TICKER.value: self._handle_ticker,
             UpbitWebSocketType.TRADE.value: self._handle_trade,
-            UpbitWebSocketType.ORDERBOOK.value: self._handle_book_partial_update,
+            UpbitWebSocketType.ORDERBOOK.value: self._handle_book,
         }
 
         # WebSocket msgspec decoders
@@ -244,8 +240,9 @@ class UpbitDataClient(LiveMarketDataClient):
 
     async def _reconnect(self) -> None:
         coros = []
-        for instrument_id in self._book_depths:
-            coros.append(self._order_book_snapshot_then_deltas(instrument_id))
+        # TODO: 뭔가 필요한 일 있는지 생각해보기
+        # for instrument_id in self._book_depths:
+        #     coros.append(self._order_book_snapshot_then_deltas(instrument_id))
 
         await asyncio.gather(*coros)
 
@@ -314,14 +311,9 @@ class UpbitDataClient(LiveMarketDataClient):
         depth: int | None = None,
         kwargs: dict | None = None,
     ) -> None:
-        update_speed = None
-        if kwargs is not None:
-            update_speed = kwargs.get("update_speed")
         await self._subscribe_order_book(
             instrument_id=instrument_id,
             book_type=book_type,
-            update_speed=update_speed,
-            depth=depth,
         )
 
     async def _subscribe_order_book_snapshots(
@@ -331,102 +323,25 @@ class UpbitDataClient(LiveMarketDataClient):
         depth: int | None = None,
         kwargs: dict | None = None,
     ) -> None:
-        update_speed = None
-        if kwargs is not None:
-            update_speed = kwargs.get("update_speed")
         await self._subscribe_order_book(
             instrument_id=instrument_id,
             book_type=book_type,
-            update_speed=update_speed,
-            depth=depth,
         )
 
-    # TODO: 해석 필요
     async def _subscribe_order_book(  # (too complex)
         self,
         instrument_id: InstrumentId,
         book_type: BookType,
-        update_speed: int | None = None,
-        depth: int | None = None,
     ) -> None:
-        if book_type == BookType.L3_MBO:
+        if book_type != BookType.L2_MBP:
             self._log.error(
-                "Cannot subscribe to order book deltas: "
-                "L3_MBO data is not published by Binance. "
-                "Valid book types are L1_MBP, L2_MBP",
+                f"Cannot subscribe to order book deltas: "
+                f"{book_type} data is not published by Upbit. "
+                f"Valid book type is only L2_MBP",
             )
             return
 
-        valid_speeds = [100, 1000]
-        if self._binance_account_type.is_futures:
-            if update_speed is None:
-                update_speed = 0  # Default 0 ms for futures
-            valid_speeds = [0, 100, 250, 500]  # 0ms option for futures exists but not documented?
-        elif update_speed is None:
-            update_speed = 100  # Default 100ms for spot
-        if update_speed not in valid_speeds:
-            self._log.error(
-                "Cannot subscribe to order book:"
-                f"invalid `update_speed`, was {update_speed}. "
-                f"Valid update speeds are {valid_speeds} ms",
-            )
-            return
-
-        if not depth:
-            # Reasonable default for full book, which works for Spot and Futures
-            depth = 1000
-
-        if 0 < depth <= 20:
-            if depth not in (5, 10, 20):
-                self._log.error(
-                    "Cannot subscribe to order book snapshots: "
-                    f"invalid `depth`, was {depth}. "
-                    "Valid depths are 5, 10 or 20",
-                )
-                return
-            await self._ws_client.subscribe_partial_book_depth(
-                symbol=instrument_id.symbol.value,
-                depth=depth,
-                speed=update_speed,
-            )
-        else:
-            await self._ws_client.subscribe_diff_book_depth(
-                symbol=instrument_id.symbol.value,
-                speed=update_speed,
-            )
-
-        self._book_depths[instrument_id] = depth
-
-        await self._order_book_snapshot_then_deltas(instrument_id)
-
-    async def _order_book_snapshot_then_deltas(self, instrument_id: InstrumentId) -> None:
-        # Add delta feed buffer
-        self._book_buffer[instrument_id] = []
-
-        depth = self._book_depths[instrument_id]
-
-        self._log.info(
-            f"OrderBook snapshot rebuild for {instrument_id} @ depth {depth} starting",
-            LogColor.BLUE,
-        )
-
-        snapshot: OrderBookDeltas = await self._http_market.request_order_book_snapshot(
-            instrument_id=instrument_id,
-            limit=depth,
-            ts_init=self._clock.timestamp_ns(),
-        )
-        self._handle_data(snapshot)
-
-        book_buffer = self._book_buffer.pop(instrument_id, [])
-        for deltas in book_buffer:
-            if snapshot and deltas.sequence <= snapshot.sequence:
-                continue
-            self._handle_data(deltas)
-
-        self._log.info(
-            f"OrderBook snapshot rebuild for {instrument_id} completed",
-            LogColor.BLUE,
-        )
+        await self._ws_client.subscribe_orderbook(instrument_id.symbol.value)
 
     async def _subscribe_quote_ticks(self, instrument_id: InstrumentId) -> None:
         await self._ws_client.subscribe_ticker(instrument_id.symbol.value)
@@ -471,7 +386,7 @@ class UpbitDataClient(LiveMarketDataClient):
             return
 
         delay_server = 0.1  # Hardcoded delay for waiting Upbit
-        delay_client = interval_ns / 3e10  # Hardcoded delay for loop; interval / 30
+        delay_client = 0.1  # Hardcoded delay for loop
         while True:
             # This may be called multiple times as Upbit does not provide immediately
             while last_time + interval_ns <= self._clock.timestamp_ns():
@@ -885,21 +800,14 @@ class UpbitDataClient(LiveMarketDataClient):
         )
         self._handle_data(trade_tick)
 
-    def _handle_book_partial_update(self, raw: bytes) -> None:
+    def _handle_book(self, raw: bytes) -> None:
         msg = self._decoder_order_book_msg.decode(raw)
         instrument_id: InstrumentId = self._get_cached_instrument_id(msg.code)
         book_snapshot: OrderBookDeltas = msg.parse_to_order_book_snapshot(
             instrument_id=instrument_id,
             ts_init=self._clock.timestamp_ns(),
         )
-        # Check if book buffer active
-        book_buffer: list[OrderBookDelta | OrderBookDeltas] | None = self._book_buffer.get(
-            instrument_id,
-        )
-        if book_buffer is not None:
-            book_buffer.append(book_snapshot)
-        else:
-            self._handle_data(book_snapshot)
+        self._handle_data(book_snapshot)
 
 
 if __name__ == "__main__":
@@ -952,8 +860,10 @@ if __name__ == "__main__":
     )
     client.subscribe_bars(bt)
 
-    # TODO: implement orderbook
-    # client.subscribe_order_book_deltas()
+    client.subscribe_order_book_snapshots(
+        InstrumentId(Symbol("KRW-BTC"), Venue("UPBIT")),
+        BookType.L2_MBP,
+    )
 
     print("Tasks created!")
 

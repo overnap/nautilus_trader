@@ -24,8 +24,10 @@ https://binance-docs.github.io/apidocs/futures/en/#public-endpoints-info
 from decimal import Decimal
 from enum import Enum
 from enum import unique
+from typing import Self
 
 from nautilus_trader.model.data import BarSpecification
+
 from nautilus_trader.model.enums import BarAggregation
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.enums import OrderStatus
@@ -44,17 +46,6 @@ class UpbitWebSocketType(Enum):
     ORDERBOOK = "orderbook"
     ORDER = "myOrder"
     ASSET = "myAsset"
-
-
-@unique
-class UpbitRateLimitType(Enum):
-    """
-    Represents a `Binance` rate limit type.
-    """
-
-    ORDER = "ORDER"
-    GENERAL = "GENERAL"
-    WEBSOCKET = "WEBSOCKET"
 
 
 @unique

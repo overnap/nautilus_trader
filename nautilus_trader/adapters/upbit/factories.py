@@ -96,10 +96,11 @@ def get_cached_upbit_http_client(
     default_http_base_url = "https://api.upbit.com/"
 
     # Set up rate limit quotas TODO: 업비트에 맞게 수정
-    ratelimiter_default_quota = Quota.rate_per_minute(6000)
+    ratelimiter_default_quota = Quota.rate_per_second(10)
     ratelimiter_quotas: list[tuple[str, Quota]] = [
-        ("order", Quota.rate_per_minute(3000)),
-        ("allOrders", Quota.rate_per_minute(int(3000 / 20))),
+        ("orders", Quota.rate_per_second(8)),
+        ("exchange", Quota.rate_per_second(30)),
+        ("market", Quota.rate_per_second(10)),
     ]
 
     client_key: str = "|".join((api_key, api_secret, base_url))

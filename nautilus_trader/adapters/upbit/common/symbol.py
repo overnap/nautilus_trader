@@ -19,6 +19,8 @@ import json
 
 from nautilus_trader.core.correctness import PyCondition
 
+from nautilus_trader.adapters.upbit.common.enums import UpbitTradeFee
+
 
 ################################################################################
 # HTTP responses
@@ -38,6 +40,21 @@ class UpbitSymbol(str):
 
     def parse_as_nautilus(self) -> str:
         return str(self)
+
+    def calculate_upbit_fee(self) -> UpbitTradeFee:
+        # Hard coded market quotient extraction
+        quote = str(self).split("-")[0]
+        if quote == "KRW":
+            return UpbitTradeFee.KRW_COMMON
+        elif quote == "BTC":
+            return UpbitTradeFee.BTC
+        elif quote == "USDT":
+            raise ValueError(
+                "Since Upbit does not have enough support for the liquidity side, "
+                "USDT commission, which varies on maker/taker, cannot be inferred."
+            )
+        else:
+            raise ValueError(f"The quote currency {quote} is not supported in Upbit.")
 
 
 class UpbitSymbols(str):

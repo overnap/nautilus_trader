@@ -119,14 +119,13 @@ class UpbitTrade(msgspec.Struct, frozen=True):
         # Upbit doesn't provide LiquiditySide; and there is no impact on fee in the KRW or BTC market
         liquidity_side = LiquiditySide.NO_LIQUIDITY_SIDE
 
-        comimssion: Money | None
-        # Hard coded market quotient extraction
-        if self.market.split("-")[0] == "KRW":
-            commission = UpbitTradeFee.KRW_COMMON * Money.from_str(self.funds)
-        elif self.market.split("-")[0] == "BTC":
-            commission = UpbitTradeFee.BTC * Money.from_str(self.funds)
-        else:
-            commission = None
+        quote = self.market.split("-")[0]
+        commission = Money(
+            UpbitSymbol(self.market).calculate_upbit_fee().value
+            * Decimal(str(self.price))
+            * Decimal(str(self.volume)),
+            Currency.from_str(quote),
+        )
 
         return FillReport(
             account_id=account_id,
@@ -317,24 +316,6 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             ts_init=ts_init,
         )
 
-    def calculate_commission(self) -> Money | None:
-        commission: Money | None
-        # Hard coded market quotient extraction
-        quote = self.code.split("-")[0]
-        if quote == "KRW":
-            commission = Money(
-                UpbitTradeFee.KRW_COMMON * Decimal(str(self.price)) * Decimal(str(self.volume)),
-                Currency.from_str(quote),
-            )
-        elif quote == "BTC":
-            commission = Money(
-                UpbitTradeFee.BTC * Decimal(str(self.price)) * Decimal(str(self.volume)),
-                Currency.from_str(quote),
-            )
-        else:
-            commission = None
-        return commission
-
     def parse_to_fill_report(
         self,
         account_id: AccountId,
@@ -358,6 +339,14 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
         # Upbit doesn't provide LiquiditySide; and there is no impact on fee in the KRW or BTC market
         liquidity_side = LiquiditySide.NO_LIQUIDITY_SIDE
 
+        quote = self.code.split("-")[0]
+        commission = Money(
+            UpbitSymbol(self.code).calculate_upbit_fee().value
+            * Decimal(str(self.price))
+            * Decimal(str(self.volume)),
+            Currency.from_str(quote),
+        )
+
         return FillReport(
             account_id=account_id,
             instrument_id=instrument_id,
@@ -369,7 +358,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             last_px=Price.from_str(self.price),
             liquidity_side=liquidity_side,
             ts_event=millis_to_nanos(self.trade_timestamp),
-            commission=self.calculate_commission(),
+            commission=commission,
             report_id=report_id,
             ts_init=ts_init,
         )

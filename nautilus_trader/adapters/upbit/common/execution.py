@@ -20,7 +20,7 @@ from decimal import Decimal
 import msgspec
 import pandas as pd
 from nautilus_trader.core.nautilus_pyo3 import millis_to_nanos
-from nautilus_trader.core.nautilus_pyo3.model import LiquiditySide
+from nautilus_trader.core.nautilus_pyo3.model import LiquiditySide, PriceType
 
 from nautilus_trader.adapters.binance.common.constants import BINANCE_MAX_CALLBACK_RATE
 from nautilus_trader.adapters.binance.common.constants import BINANCE_MIN_CALLBACK_RATE
@@ -369,7 +369,7 @@ class UpbitExecutionClient(LiveExecutionClient):
             report_id=UUID4(),
             enum_parser=self._enum_parser,
             ts_init=self._clock.timestamp_ns(),
-            identifier=client_order_id,
+            identifier=client_order_id.value,
         )
 
         self._log.debug(f"Received {report}")
@@ -436,7 +436,7 @@ class UpbitExecutionClient(LiveExecutionClient):
                 report_id=UUID4(),
                 enum_parser=self._enum_parser,
                 ts_init=self._clock.timestamp_ns(),
-                identifier=client_id.to_str() if client_id else None,
+                identifier=client_id.value if client_id else None,
             )
             self._log.debug(f"Received {report}")
             reports.append(report)
@@ -553,18 +553,6 @@ class UpbitExecutionClient(LiveExecutionClient):
                 f"See https://docs.upbit.com/reference/%EC%A3%BC%EB%AC%B8%ED%95%98%EA%B8%B0",
             )
             return
-        if (
-            order.order_type == OrderType.MARKET
-            and order.side == OrderSide.BUY
-            and not order.is_quote_quantity
-        ):
-            self._log.error(
-                f"Cannot submit order: "
-                f"{order_type_to_str(OrderType.MARKET)} BUYING orders that is not `is_quote_quantity` "
-                f"not supported by the Upbit. "
-                f"See https://docs.upbit.com/reference/%EC%A3%BC%EB%AC%B8%ED%95%98%EA%B8%B0",
-            )
-            return
 
     def _should_retry(self, name: str, retries: int) -> bool:
         if name not in self._retry_errors or not self._max_retries or retries > self._max_retries:
@@ -605,7 +593,10 @@ class UpbitExecutionClient(LiveExecutionClient):
 
         while True:
             try:
-                await self._submit_order_method[order.order_type](order)
+                upbit_order = await self._submit_order_method[order.order_type](order)
+                self._cache.add_venue_order_id(
+                    order.client_order_id, VenueOrderId(upbit_order.uuid)
+                )
                 self._order_retries.pop(order.client_order_id, None)
                 break  # Successful request
             except KeyError:
@@ -632,20 +623,55 @@ class UpbitExecutionClient(LiveExecutionClient):
                 )
                 await asyncio.sleep(self._retry_delay)
 
-    async def _submit_market_order(self, order: MarketOrder) -> None:
-        await self._http_exchange.new_order(
-            market=order.instrument_id.symbol,
-            side=self._enum_parser.parse_internal_order_side(order.side),
-            order_type=self._enum_parser.parse_internal_order_type(order.order_type, order.side),
-            time_in_force=None,
-            volume=(order.quantity if order.side == OrderSide.SELL else None),
-            price=(order.quantity if order.side == OrderSide.BUY else None),
-            client_order_id=order.client_order_id,
-        )
+    async def _submit_market_order(self, order: MarketOrder) -> UpbitOrder:
+        if order.side == OrderSide.BUY:
+            book = self._cache.order_book(order.instrument_id)
+            trade = self._cache.trade_tick(order.instrument_id)
+            price: Price
+            if book:
+                price = book.best_ask_price()
+            elif trade:
+                price = trade.price
+            else:
+                self._log.error(
+                    "Submiting MARKET BUYING orders to UPBIT requires last price, "
+                    "but orderbook and trade tick are not subscribed."
+                )
+                return
 
-    async def _submit_limit_order(self, order: LimitOrder) -> None:
-        await self._http_exchange.new_order(
-            market=order.instrument_id.symbol,
+            return await self._http_exchange.new_order(
+                market=order.instrument_id.symbol.value,
+                side=self._enum_parser.parse_internal_order_side(order.side),
+                order_type=self._enum_parser.parse_internal_order_type(
+                    order.order_type, order.side
+                ),
+                time_in_force=None,
+                volume=(order.quantity if order.side == OrderSide.SELL else None),
+                # Currently Price is approximated by the last price and order quantity
+                # Treating it as a market sell for the inverse instrument would be better
+                price=self._cache.instrument(order.instrument_id).make_price(
+                    order.quantity.as_decimal() * price.as_decimal()
+                ),
+                client_order_id=order.client_order_id,
+            )
+        elif order.side == OrderSide.SELL:
+            return await self._http_exchange.new_order(
+                market=order.instrument_id.symbol.value,
+                side=self._enum_parser.parse_internal_order_side(order.side),
+                order_type=self._enum_parser.parse_internal_order_type(
+                    order.order_type, order.side
+                ),
+                time_in_force=None,
+                volume=order.quantity,
+                price=None,
+                client_order_id=order.client_order_id,
+            )
+        else:
+            raise ValueError(f"No order side in {order!r}")
+
+    async def _submit_limit_order(self, order: LimitOrder) -> UpbitOrder:
+        return await self._http_exchange.new_order(
+            market=order.instrument_id.symbol.value,
             side=self._enum_parser.parse_internal_order_side(order.side),
             order_type=self._enum_parser.parse_internal_order_type(order.order_type),
             time_in_force=self._determine_time_in_force(order),
@@ -666,7 +692,7 @@ class UpbitExecutionClient(LiveExecutionClient):
         for order in command.order_list.orders:
             if order.linked_order_ids:  # TODO: Implement
                 self._log.warning(f"Cannot yet handle OCO conditional orders, {order}")
-            await self._submit_order_inner(order)
+            await self._submit_order_inner(order)  # TODO: 그냥 리스트로 묶어서 전달? 다시한번 고민
 
     def _get_cached_instrument_id(self, symbol: str) -> InstrumentId:
         # Parse instrument ID
@@ -773,11 +799,13 @@ class UpbitExecutionClient(LiveExecutionClient):
         order_msg = self._decoder_order_update.decode(raw)
 
         venue_order_id = VenueOrderId(order_msg.uuid)
-        client_order_id_str = self._cache.client_order_id(venue_order_id)
+        client_order_id_str = self._cache.client_order_id(venue_order_id).value
         if not client_order_id_str:
-            raise AssertionError(
-                "Client order id should be set, but not found by venue order id in cache."
+            self._log.warning(
+                f"Client order id should be set, but not found by venue order id in cache. "
+                f"This is likely an order by outside of the strategy, was {order_msg}"
             )
+            return
         client_order_id = ClientOrderId(client_order_id_str)
         ts_event = millis_to_nanos(order_msg.timestamp)
         instrument_id = self._get_cached_instrument_id(order_msg.code)
@@ -812,7 +840,7 @@ class UpbitExecutionClient(LiveExecutionClient):
                 venue_order_id=venue_order_id,
                 venue_position_id=None,
                 trade_id=TradeId(order_msg.trade_uuid),
-                order_side=self._enum_parser.parse_upbit_order_side_http(order_msg.ask_bid),
+                order_side=self._enum_parser.parse_upbit_order_side_websocket(order_msg.ask_bid),
                 order_type=self._enum_parser.parse_upbit_order_type(order_msg.order_type),
                 last_qty=Quantity(order_msg.volume),
                 last_px=Price(order_msg.price),
@@ -912,21 +940,24 @@ if __name__ == "__main__":
         # TODO: 이러니까 venue id -> client id를 캐시에서 못찾아서 에러남.
         strategy_id = TestIdStubs.strategy_id()
         morder = market_order(
-            instrument_id=InstrumentId(Symbol("KRW-BTC"), venue=UPBIT_VENUE),
+            instrument_id=InstrumentId(Symbol("KRW-SOL"), venue=UPBIT_VENUE),
             order_side=OrderSide.BUY,
-            quantity=Quantity.from_str("8000"),
-            is_quote_quantity=True,
+            quantity=Quantity.from_str("20"),
             client_order_id=ClientOrderId(UUID4().value),
         )
-        client.submit_order(
-            SubmitOrder(
-                trader_id=trader_id,
-                strategy_id=strategy_id,
-                order=morder,
-                command_id=UUID4(),
-                ts_init=clock.timestamp_ns(),
+        try:
+            client.submit_order(
+                SubmitOrder(
+                    trader_id=trader_id,
+                    strategy_id=strategy_id,
+                    order=morder,
+                    command_id=UUID4(),
+                    ts_init=clock.timestamp_ns(),
+                )
             )
-        )
+        except Exception as e:
+            print(e)
+            traceback.print_exc()
 
     loop.create_task(test())
 

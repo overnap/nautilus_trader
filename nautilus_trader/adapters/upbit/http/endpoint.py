@@ -56,7 +56,6 @@ class UpbitHttpEndpoint:
 
         self._method_request = {
             UpbitSecurityType.NONE: self.client.send_request,
-            UpbitSecurityType.MARKET_DATA: self.client.send_request,
             UpbitSecurityType.TRADE: self.client.sign_request,
         }
 

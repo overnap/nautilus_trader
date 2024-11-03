@@ -103,12 +103,12 @@ cdef class RiskEngine(Component):
     """
 
     def __init__(
-        self,
-        PortfolioFacade portfolio not None,
-        MessageBus msgbus not None,
-        Cache cache not None,
-        Clock clock not None,
-        config: RiskEngineConfig | None = None,
+            self,
+            PortfolioFacade portfolio not None,
+            MessageBus msgbus not None,
+            Cache cache not None,
+            Clock clock not None,
+            config: RiskEngineConfig | None = None,
     ):
         if config is None:
             config = RiskEngineConfig()
@@ -663,9 +663,15 @@ cdef class RiskEngine(Component):
             else:
                 last_px = order.price
 
-            notional = instrument.notional_value(order.quantity, last_px, use_quote_for_inverse=True)
+            quantity: Quantity
+            if not order.is_quote_quantity:
+                quantity = order.quantity
+            else:
+                quantity = instrument.calculate_base_quantity(order.quantity, last_px)
+
+            notional = instrument.notional_value(quantity, last_px, use_quote_for_inverse=True)
             if self.debug:
-                self._log.debug(f"Notional: {order_balance_impact!r}", LogColor.MAGENTA)
+                self._log.debug(f"Notional: {notional!r}", LogColor.MAGENTA)
 
             if max_notional and notional._mem.raw > max_notional._mem.raw:
                 self._deny_order(
@@ -676,9 +682,9 @@ cdef class RiskEngine(Component):
 
             # Check MIN notional instrument limit
             if (
-                instrument.min_notional is not None
-                and instrument.min_notional.currency == notional.currency
-                and notional._mem.raw < instrument.min_notional._mem.raw
+                    instrument.min_notional is not None
+                    and instrument.min_notional.currency == notional.currency
+                    and notional._mem.raw < instrument.min_notional._mem.raw
             ):
                 self._deny_order(
                     order=order,
@@ -688,9 +694,9 @@ cdef class RiskEngine(Component):
 
             # Check MAX notional instrument limit
             if (
-                instrument.max_notional is not None
-                and instrument.max_notional.currency == notional.currency
-                and notional._mem.raw > instrument.max_notional._mem.raw
+                    instrument.max_notional is not None
+                    and instrument.max_notional.currency == notional.currency
+                    and notional._mem.raw > instrument.max_notional._mem.raw
             ):
                 self._deny_order(
                     order=order,
@@ -698,14 +704,14 @@ cdef class RiskEngine(Component):
                 )
                 return False  # Denied
 
-            order_balance_impact = account.balance_impact(instrument, order.quantity, last_px, order.side)
+            order_balance_impact = account.balance_impact(instrument, quantity, last_px, order.side)
             if self.debug:
                 self._log.debug(f"Balance impact: {order_balance_impact!r}", LogColor.MAGENTA)
 
             if free is not None and (free._mem.raw + order_balance_impact._mem.raw) < 0:
                 self._deny_order(
                     order=order,
-                    reason=f"NOTIONAL_EXCEEDS_FREE_BALANCE: free={free}, notional={order_balance_impact}",
+                    reason=f"NOTIONAL_EXCEEDS_FREE_BALANCE: free={free}, notional={-order_balance_impact}",
                 )
                 return False  # Denied
 

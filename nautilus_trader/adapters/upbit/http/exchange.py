@@ -40,9 +40,11 @@ class UpbitAccountsHttp(UpbitHttpEndpoint):
 
         self._resp_decoder = msgspec.json.Decoder(list[UpbitAsset])
 
+        self.limit_key = "exchange"
+
     async def get(self) -> list[UpbitAsset]:
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params=None)
+        raw = await self._method(method_type, params=None, ratelimiter_keys=[])
         return self._resp_decoder.decode(raw)
 
 
@@ -66,6 +68,8 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
 
         self._resp_decoder = msgspec.json.Decoder(UpbitOrder)
 
+        self.limit_key = "exchange"
+
     class GetDeleteParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         uuid: str | None = None
         identifier: str | None = None
@@ -75,7 +79,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
             raise ValueError("Get order without `uuid` and `identifier`!")
 
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params)
+        raw = await self._method(method_type, params, ratelimiter_keys=[])
         return self._resp_decoder.decode(raw)
 
     async def delete(self, params: GetDeleteParameters) -> UpbitOrder:
@@ -83,7 +87,7 @@ class UpbitOrderHttp(UpbitHttpEndpoint):
             raise ValueError("Delete order without `uuid` and `identifier`!")
 
         method_type = HttpMethod.DELETE
-        raw = await self._method(method_type, params)
+        raw = await self._method(method_type, params, ratelimiter_keys=[])
         return self._resp_decoder.decode(raw)
 
 
@@ -107,6 +111,8 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
 
         self._post_resp_decoder = msgspec.json.Decoder(UpbitOrder)
         self._get_resp_decoder = msgspec.json.Decoder(list[UpbitOrder])
+
+        self.limit_key = "orders"
 
     class PostParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         market: str
@@ -145,7 +151,7 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
             raise ValueError(f"Post `ord_type == {params.ord_type.name}` order without `price`!")
 
         method_type = HttpMethod.POST
-        raw = await self._method(method_type, params)
+        raw = await self._method(method_type, params, ratelimiter_keys=[])
         return self._post_resp_decoder.decode(raw)
 
     async def get_open(self, params: GetOpenParameters) -> list[UpbitOrder]:
@@ -155,7 +161,7 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
             raise ValueError(f"`limit` must be in range [1, 100], was {params.limit}")
 
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params, add_path="open")
+        raw = await self._method(method_type, params, add_path="open", ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
     async def get_closed(self, params: GetClosedParameters) -> list[UpbitOrder]:
@@ -163,7 +169,7 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
             raise ValueError(f"`limit` must be in range [1, 1000], was {params.limit}")
 
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params, add_path="closed")
+        raw = await self._method(method_type, params, add_path="closed", ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
 

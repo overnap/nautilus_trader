@@ -19,6 +19,7 @@ import msgspec
 import pandas as pd
 from attr.setters import frozen
 from nautilus_trader.core.nautilus_pyo3.model import CurrencyType
+from nautilus_trader.core.rust.model import RecordFlag
 
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceExchangeFilterType
@@ -38,6 +39,8 @@ from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
+
+from nautilus_trader.model.book import OrderBook
 from nautilus_trader.model.enums import AggregationSource
 from nautilus_trader.model.enums import AggressorSide
 from nautilus_trader.model.enums import BookAction
@@ -210,18 +213,56 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.timestamp)
         bids: list[BookOrder] = [
-            BookOrder(OrderSide.BUY, Price.from_str(o.bid_price), Quantity.from_str(o.bid_size), 0)
+            BookOrder(
+                OrderSide.BUY,
+                Price.from_str(str(o.bid_price)),
+                Quantity.from_str(str(o.bid_size)),
+                0,
+            )
             for o in self.orderbook_units
         ]
         asks: list[BookOrder] = [
-            BookOrder(OrderSide.SELL, Price.from_str(o.ask_price), Quantity.from_str(o.ask_size), 0)
+            BookOrder(
+                OrderSide.SELL,
+                Price.from_str(str(o.ask_price)),
+                Quantity.from_str(str(o.ask_size)),
+                0,
+            )
             for o in self.orderbook_units
         ]
 
-        deltas = [OrderBookDelta.clear(instrument_id, ts_init, ts_event)]
-        deltas += [
-            OrderBookDelta(instrument_id, BookAction.ADD, o, ts_event, ts_init) for o in bids + asks
+        deltas = [
+            OrderBookDelta.clear(
+                instrument_id=instrument_id,
+                sequence=0,
+                ts_init=ts_init,
+                ts_event=ts_event,
+            )
         ]
+        for idx, bid in enumerate(bids):
+            deltas.append(
+                OrderBookDelta(
+                    instrument_id=instrument_id,
+                    action=BookAction.ADD,
+                    order=bid,
+                    flags=0 if idx < len(bids) else RecordFlag.F_LAST,
+                    sequence=0,
+                    ts_event=ts_event,
+                    ts_init=ts_init,
+                )
+            )
+        for idx, ask in enumerate(asks):
+            deltas.append(
+                OrderBookDelta(
+                    instrument_id=instrument_id,
+                    action=BookAction.ADD,
+                    order=ask,
+                    flags=0 if idx < len(asks) else RecordFlag.F_LAST,
+                    sequence=0,
+                    ts_event=ts_event,
+                    ts_init=ts_init,
+                )
+            )
         return OrderBookDeltas(instrument_id=instrument_id, deltas=deltas)
 
 
@@ -376,11 +417,11 @@ class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
 
     type: str  # 타입 (orderbook : 호가)
     code: str  # 마켓 코드 (ex. KRW-BTC)
-    total_ask_size: str  # 호가 매도 총 잔량
-    total_bid_size: str  # 호가 매수 총 잔량
+    total_ask_size: float  # 호가 매도 총 잔량
+    total_bid_size: float  # 호가 매수 총 잔량
     orderbook_units: list[UpbitOrderbookUnit]  # 호가 (List of Objects)
     timestamp: int  # 타임스탬프 (millisecond)
-    level: str  # 호가 모아보기 단위 (default: 0)
+    level: int  # 호가 모아보기 단위 (default: 0)
 
     def parse_to_order_book_snapshot(
         self,
@@ -389,16 +430,54 @@ class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
     ) -> OrderBookDeltas:
         ts_event: int = millis_to_nanos(self.timestamp)
         bids: list[BookOrder] = [
-            BookOrder(OrderSide.BUY, Price.from_str(o.bid_price), Quantity.from_str(o.bid_size), 0)
+            BookOrder(
+                OrderSide.BUY,
+                Price.from_str(str(o.bid_price)),
+                Quantity.from_str(str(o.bid_size)),
+                0,
+            )
             for o in self.orderbook_units
         ]
         asks: list[BookOrder] = [
-            BookOrder(OrderSide.SELL, Price.from_str(o.ask_price), Quantity.from_str(o.ask_size), 0)
+            BookOrder(
+                OrderSide.SELL,
+                Price.from_str(str(o.ask_price)),
+                Quantity.from_str(str(o.ask_size)),
+                0,
+            )
             for o in self.orderbook_units
         ]
 
-        deltas = [OrderBookDelta.clear(instrument_id, ts_init, ts_event)]
-        deltas += [
-            OrderBookDelta(instrument_id, BookAction.ADD, o, ts_event, ts_init) for o in bids + asks
+        deltas = [
+            OrderBookDelta.clear(
+                instrument_id=instrument_id,
+                sequence=0,
+                ts_init=ts_init,
+                ts_event=ts_event,
+            )
         ]
+        for idx, bid in enumerate(bids):
+            deltas.append(
+                OrderBookDelta(
+                    instrument_id=instrument_id,
+                    action=BookAction.ADD,
+                    order=bid,
+                    flags=0 if idx < len(bids) else RecordFlag.F_LAST,
+                    sequence=0,
+                    ts_event=ts_event,
+                    ts_init=ts_init,
+                )
+            )
+        for idx, ask in enumerate(asks):
+            deltas.append(
+                OrderBookDelta(
+                    instrument_id=instrument_id,
+                    action=BookAction.ADD,
+                    order=ask,
+                    flags=0 if idx < len(asks) else RecordFlag.F_LAST,
+                    sequence=0,
+                    ts_event=ts_event,
+                    ts_init=ts_init,
+                )
+            )
         return OrderBookDeltas(instrument_id=instrument_id, deltas=deltas)

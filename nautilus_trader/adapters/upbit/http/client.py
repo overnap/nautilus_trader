@@ -14,6 +14,8 @@
 # -------------------------------------------------------------------------------------------------
 
 import hashlib
+import traceback
+
 import jwt  # TODO: 의존성 제거
 import urllib.parse
 from typing import Any
@@ -177,13 +179,18 @@ class UpbitHttpClient:
         self._log.debug(f"{url_path} {payload}", LogColor.MAGENTA)
         print(f"{url_path}")
 
-        response: HttpResponse = await self._client.request(
-            http_method,
-            url=self._base_url + url_path,
-            headers=auth_headers if auth_headers is not None else self._headers,
-            body=msgspec.json.encode(payload) if payload else None,
-            keys=ratelimiter_keys,
-        )
+        try:
+            response: HttpResponse = await self._client.request(
+                http_method,
+                url=self._base_url + url_path,
+                headers=auth_headers if auth_headers is not None else self._headers,
+                body=msgspec.json.encode(payload) if payload else None,
+                keys=ratelimiter_keys,
+            )
+        except Exception as e:
+            # TODO: 추후 에러핸들링 잘 만들고 삭제
+            print(e)
+            traceback.print_exc()
 
         if 400 <= response.status < 500:
             raise BinanceClientError(  # TODO: 에러 수정
