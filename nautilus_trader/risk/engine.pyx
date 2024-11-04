@@ -741,10 +741,11 @@ cdef class RiskEngine(Component):
 
                     if self.debug:
                         self._log.debug(f"Cumulative notional SELL: {cum_notional_sell!r}")
-                    if free is not None and cum_notional_sell._mem.raw > free._mem.raw:
+                    if (account.balance_free(account.base_currency) is not None and
+                            cum_notional_sell._mem.raw > account.balance_free(account.base_currency)._mem.raw):
                         self._deny_order(
                             order=order,
-                            reason=f"CUM_NOTIONAL_EXCEEDS_FREE_BALANCE: free={free}, cum_notional={cum_notional_sell}",
+                            reason=f"CUM_NOTIONAL_EXCEEDS_FREE_BALANCE: free={account.balance_free(account.base_currency)}, cum_notional={cum_notional_sell}",
                         )
                         return False  # Denied
                 elif base_currency is not None and account.type == AccountType.CASH:
@@ -765,10 +766,11 @@ cdef class RiskEngine(Component):
 
                     if self.debug:
                         self._log.debug(f"Cumulative notional SELL: {cum_notional_sell!r}")
-                    if free is not None and cum_notional_sell._mem.raw > free._mem.raw:
+                    if (account.balance_free(base_currency) is not None and
+                        cum_notional_sell._mem.raw > account.balance_free(base_currency)._mem.raw):
                         self._deny_order(
                             order=order,
-                            reason=f"CUM_NOTIONAL_EXCEEDS_FREE_BALANCE: free={free}, cum_notional={cum_notional_sell}",
+                            reason=f"CUM_NOTIONAL_EXCEEDS_FREE_BALANCE: free={account.balance_free(base_currency)}, cum_notional={cum_notional_sell}",
                         )
                         return False  # Denied
 

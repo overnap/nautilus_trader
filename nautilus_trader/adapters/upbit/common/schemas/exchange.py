@@ -300,13 +300,13 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             contingency_type=contingency_type,
             time_in_force=enum_parser.parse_upbit_time_in_force(self.time_in_force),
             order_status=enum_parser.parse_upbit_order_status(self.state),
-            price=Price.from_str(self.price) if self.price else None,
+            price=Price.from_str(str(self.price)) if self.price else None,
             trigger_price=None,  # `decimal.Decimal`
             trigger_type=trigger_type,
             trailing_offset=trailing_offset,
             trailing_offset_type=trailing_offset_type,
-            quantity=Quantity.from_str(self.volume if self.volume else self.price),
-            filled_qty=Quantity.from_str(self.executed_volume if self.executed_volume else "0"),
+            quantity=Quantity.from_str(str(self.volume if self.volume else self.price)),
+            filled_qty=Quantity.from_str(str(self.executed_volume if self.executed_volume else 0)),
             avg_px=Decimal(str(self.avg_price)),
             post_only=post_only,
             reduce_only=reduce_only,
@@ -314,6 +314,14 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             ts_last=millis_to_nanos(self.timestamp),
             report_id=report_id,
             ts_init=ts_init,
+        )
+
+    def calculate_commission(self):
+        return Money(
+            UpbitSymbol(self.code).calculate_upbit_fee().value
+            * Decimal(str(self.price))
+            * Decimal(str(self.volume)),
+            Currency.from_str(self.code.split("-")[0]),
         )
 
     def parse_to_fill_report(
@@ -339,14 +347,6 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
         # Upbit doesn't provide LiquiditySide; and there is no impact on fee in the KRW or BTC market
         liquidity_side = LiquiditySide.NO_LIQUIDITY_SIDE
 
-        quote = self.code.split("-")[0]
-        commission = Money(
-            UpbitSymbol(self.code).calculate_upbit_fee().value
-            * Decimal(str(self.price))
-            * Decimal(str(self.volume)),
-            Currency.from_str(quote),
-        )
-
         return FillReport(
             account_id=account_id,
             instrument_id=instrument_id,
@@ -358,7 +358,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             last_px=Price.from_str(self.price),
             liquidity_side=liquidity_side,
             ts_event=millis_to_nanos(self.trade_timestamp),
-            commission=commission,
+            commission=self.calculate_commission(),
             report_id=report_id,
             ts_init=ts_init,
         )

@@ -385,8 +385,8 @@ class UpbitDataClient(LiveMarketDataClient):
             )
             return
 
-        delay_server = 0.1  # Hardcoded delay for waiting Upbit
-        delay_client = 0.1  # Hardcoded delay for loop
+        delay_server = 0.33  # Hardcoded delay for waiting Upbit
+        delay_client = 0.33  # Hardcoded delay for loop
         while True:
             # This may be called multiple times as Upbit does not provide immediately
             while last_time + interval_ns <= self._clock.timestamp_ns():

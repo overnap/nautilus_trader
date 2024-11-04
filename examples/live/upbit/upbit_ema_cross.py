@@ -142,7 +142,7 @@ class UpbitEMACross(Strategy):
         # Get historical data
         self.request_bars(
             self.bar_type,
-            start=self._clock.utc_now() - pd.Timedelta(minutes=30),
+            start=self._clock.utc_now() - pd.Timedelta(minutes=2),
         )
         # self.request_quote_ticks(self.instrument_id)
         # self.request_trade_ticks(self.instrument_id)
@@ -276,14 +276,18 @@ class UpbitEMACross(Strategy):
             order: MarketOrder = self.order_factory.market(
                 instrument_id=self.instrument_id,
                 order_side=OrderSide.BUY,
-                quantity=Quantity(
-                    self.instrument.make_price(
-                        (balance.free.as_decimal() - 1)
-                        * (
-                            1
-                            - UpbitSymbol(self.instrument.symbol.value).calculate_upbit_fee().value
-                        )
-                    ).as_decimal()
+                quantity=Quantity.from_str(
+                    str(
+                        self.instrument.make_price(
+                            (balance.free.as_decimal() - 1)
+                            * (
+                                1
+                                - UpbitSymbol(self.instrument.symbol.value)
+                                .calculate_upbit_fee()
+                                .value
+                            )
+                        ).as_decimal()
+                    )
                 ),
                 quote_quantity=True,
                 # time_in_force=TimeInForce.FOK,
@@ -299,7 +303,7 @@ class UpbitEMACross(Strategy):
             self.instrument.get_base_currency()
         )
         self.log.info(f"Base Balance: {balance=}")
-        if balance is not None:
+        if balance is not None and balance.free.as_double() > 0:
             order: MarketOrder = self.order_factory.market(
                 instrument_id=self.instrument_id,
                 order_side=OrderSide.SELL,
@@ -442,9 +446,9 @@ node = TradingNode(config=config_node)
 strat_config = EMACrossConfig(
     instrument_id=InstrumentId.from_str("KRW-CARV.UPBIT"),
     external_order_claims=[InstrumentId.from_str("KRW-CARV.UPBIT")],
-    bar_type=BarType.from_str("KRW-CARV.UPBIT-1-MINUTE-LAST-EXTERNAL"),
-    fast_ema_period=10,
-    slow_ema_period=20,
+    bar_type=BarType.from_str("KRW-CARV.UPBIT-1-SECOND-LAST-EXTERNAL"),
+    fast_ema_period=50,
+    slow_ema_period=100,
     trade_size=Decimal("0.010"),
     order_id_tag="001",
 )
