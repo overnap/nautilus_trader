@@ -20,7 +20,7 @@ from decimal import Decimal
 
 import msgspec
 import pandas as pd
-from nautilus_trader.core.nautilus_pyo3.core import secs_to_nanos
+from nautilus_trader.core.nautilus_pyo3.core import secs_to_nanos, millis_to_nanos
 
 from nautilus_trader.adapters.upbit.common.constants import UPBIT_VENUE
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
@@ -57,6 +57,7 @@ from nautilus_trader.common.providers import InstrumentProvider
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.datetime import secs_to_millis
 from nautilus_trader.core.uuid import UUID4
+
 from nautilus_trader.data.aggregation import BarAggregator
 from nautilus_trader.data.aggregation import TickBarAggregator
 from nautilus_trader.data.aggregation import ValueBarAggregator
@@ -200,6 +201,13 @@ class UpbitDataClient(LiveMarketDataClient):
             BinanceErrorCode.ME_RECVWINDOW_REJECT,
         }
 
+        # They are received on a single websocket
+        self.is_subscribed_orderbook_deltas = False
+        self.is_subscribed_orderbook_snapshots = False
+        self.is_subscribed_quote_ticks = False
+
+        self.bar_subscription_task: asyncio.Task | None = None
+
     async def _connect(self) -> None:
         self._log.info("Initializing instruments...")
 
@@ -311,10 +319,16 @@ class UpbitDataClient(LiveMarketDataClient):
         depth: int | None = None,
         kwargs: dict | None = None,
     ) -> None:
-        await self._subscribe_order_book(
-            instrument_id=instrument_id,
-            book_type=book_type,
-        )
+        if (
+            not self.is_subscribed_orderbook_deltas
+            and not self.is_subscribed_orderbook_snapshots
+            and not self.is_subscribed_quote_ticks
+        ):
+            await self._subscribe_order_book(
+                instrument_id=instrument_id,
+                book_type=book_type,
+            )
+        self.is_subscribed_orderbook_deltas = True
 
     async def _subscribe_order_book_snapshots(
         self,
@@ -323,10 +337,16 @@ class UpbitDataClient(LiveMarketDataClient):
         depth: int | None = None,
         kwargs: dict | None = None,
     ) -> None:
-        await self._subscribe_order_book(
-            instrument_id=instrument_id,
-            book_type=book_type,
-        )
+        if (
+            not self.is_subscribed_orderbook_deltas
+            and not self.is_subscribed_orderbook_snapshots
+            and not self.is_subscribed_quote_ticks
+        ):
+            await self._subscribe_order_book(
+                instrument_id=instrument_id,
+                book_type=book_type,
+            )
+        self.is_subscribed_orderbook_snapshots = True
 
     async def _subscribe_order_book(  # (too complex)
         self,
@@ -344,13 +364,21 @@ class UpbitDataClient(LiveMarketDataClient):
         await self._ws_client.subscribe_orderbook(instrument_id.symbol.value)
 
     async def _subscribe_quote_ticks(self, instrument_id: InstrumentId) -> None:
-        await self._ws_client.subscribe_ticker(instrument_id.symbol.value)
+        if (
+            not self.is_subscribed_orderbook_deltas
+            and not self.is_subscribed_orderbook_snapshots
+            and not self.is_subscribed_quote_ticks
+        ):
+            await self._ws_client.subscribe_orderbook(instrument_id.symbol.value)
+        self.is_subscribed_quote_ticks = True
 
     async def _subscribe_trade_ticks(self, instrument_id: InstrumentId) -> None:
         await self._ws_client.subscribe_trades(instrument_id.symbol.value)
 
     async def _subscribe_bars(self, bar_type: BarType) -> None:
-        self.create_task(self._subscribe_bars_mock(bar_type), log_msg=f"subscribe: bars {bar_type}")
+        self.bar_subscription_task = self.create_task(
+            self._subscribe_bars_mock(bar_type), log_msg=f"subscribe: bars {bar_type}"
+        )
 
     async def _subscribe_bars_mock(self, bar_type: BarType):
         last_time = 0
@@ -385,19 +413,24 @@ class UpbitDataClient(LiveMarketDataClient):
             )
             return
 
-        delay_server = 0.33  # Hardcoded delay for waiting Upbit
-        delay_client = 0.33  # Hardcoded delay for loop
+        delay_server = 1.0  # Hardcoded delay for waiting Upbit
+        delay_client = 0.25  # Hardcoded delay for loop
         while True:
             # This may be called multiple times as Upbit does not provide immediately
             while last_time + interval_ns <= self._clock.timestamp_ns():
-                bar = await self._http_market.request_last_upbit_bar_for_subscribe(
+                bars = await self._http_market.request_last_two_upbit_bar(
                     bar_type=bar_type,
                     ts_init=self._clock.timestamp_ns(),
                     interval=interval,
                 )
-                if bar.ts_event != last_time:
-                    last_time = bar.ts_event
-                    self._handle_data(bar)
+                if bars[-1].ts_event != last_time:
+                    # There are cases where Upbit sends burst
+                    # Also, the delay is intentionally large to avoid the rate limit
+                    # This is a low-cost safety logic for these
+                    if bars[-2].ts_event > last_time:
+                        self._handle_data(bars[-2])
+                    last_time = bars[-1].ts_event
+                    self._handle_data(bars[-1])
                 else:
                     await asyncio.sleep(delay_server)
 
@@ -410,19 +443,38 @@ class UpbitDataClient(LiveMarketDataClient):
         pass  # Do nothing further
 
     async def _unsubscribe_order_book_deltas(self, instrument_id: InstrumentId) -> None:
-        pass  # TODO: Unsubscribe from Binance if no other subscriptions
+        self.is_subscribed_orderbook_deltas = False
+        if (
+            not self.is_subscribed_orderbook_deltas
+            and not self.is_subscribed_orderbook_snapshots
+            and not self.is_subscribed_quote_ticks
+        ):
+            await self._ws_client.unsubscribe_orderbook(instrument_id.symbol.value)
 
     async def _unsubscribe_order_book_snapshots(self, instrument_id: InstrumentId) -> None:
-        pass  # TODO: Unsubscribe from Binance if no other subscriptions
+        self.is_subscribed_orderbook_snapshots = False
+        if (
+            not self.is_subscribed_orderbook_deltas
+            and not self.is_subscribed_orderbook_snapshots
+            and not self.is_subscribed_quote_ticks
+        ):
+            await self._ws_client.unsubscribe_orderbook(instrument_id.symbol.value)
 
     async def _unsubscribe_quote_ticks(self, instrument_id: InstrumentId) -> None:
-        await self._ws_client.unsubscribe_ticker(instrument_id.symbol.value)
+        self.is_subscribed_quote_ticks = False
+        if (
+            not self.is_subscribed_orderbook_deltas
+            and not self.is_subscribed_orderbook_snapshots
+            and not self.is_subscribed_quote_ticks
+        ):
+            await self._ws_client.unsubscribe_orderbook(instrument_id.symbol.value)
 
     async def _unsubscribe_trade_ticks(self, instrument_id: InstrumentId) -> None:
         await self._ws_client.unsubscribe_trades(instrument_id.symbol.value)
 
     async def _unsubscribe_bars(self, bar_type: BarType) -> None:
-        self._log.warning("Upbit doesn't support bar subscription")
+        if self.bar_subscription_task is not None:
+            self.bar_subscription_task.cancel()
 
     # -- REQUESTS ---------------------------------------------------------------------------------
 
@@ -539,14 +591,18 @@ class UpbitDataClient(LiveMarketDataClient):
                 )
                 return
 
-            bars = await self._http_market.request_upbit_bars(
-                bar_type=bar_type,
-                interval=interval,
-                start_time=start_time_ms,
-                end_time=end_time_ms,
-                limit=limit if limit > 0 else None,
-                ts_init=self._clock.timestamp_ns(),
-            )
+            try:
+                bars = await self._http_market.request_upbit_bars(
+                    bar_type=bar_type,
+                    interval=interval,
+                    start_time=start_time_ms,
+                    end_time=end_time_ms,
+                    limit=limit if limit > 0 else None,
+                    ts_init=self._clock.timestamp_ns(),
+                )
+            except Exception as e:
+                print(e)
+                traceback.print_exc()
 
             if bar_type.is_internally_aggregated():
                 self._log.info(
@@ -565,6 +621,9 @@ class UpbitDataClient(LiveMarketDataClient):
             self._log.error(f"Cannot infer INTERNAL time bars without `start_time` in Upbit")
             return
 
+        self._log.debug(
+            f"Start at {bars[0].ts_event}, End at {bars[-1].ts_event}, requested at {millis_to_nanos(start_time_ms)}"
+        )
         partial: Bar = bars.pop()
         self._handle_bars(bar_type, bars, partial, correlation_id)
 
@@ -803,11 +862,24 @@ class UpbitDataClient(LiveMarketDataClient):
     def _handle_book(self, raw: bytes) -> None:
         msg = self._decoder_order_book_msg.decode(raw)
         instrument_id: InstrumentId = self._get_cached_instrument_id(msg.code)
-        book_snapshot: OrderBookDeltas = msg.parse_to_order_book_snapshot(
-            instrument_id=instrument_id,
-            ts_init=self._clock.timestamp_ns(),
-        )
-        self._handle_data(book_snapshot)
+
+        if self.is_subscribed_quote_ticks:
+            quote_tick: QuoteTick = msg.parse_to_quote_tick(
+                instrument_id=instrument_id,
+                ts_init=self._clock.timestamp_ns(),
+            )
+            self._handle_data(quote_tick)
+
+        if self.is_subscribed_orderbook_snapshots:
+            book_snapshot: OrderBookDeltas = msg.parse_to_order_book_snapshot(
+                instrument_id=instrument_id,
+                ts_init=self._clock.timestamp_ns(),
+            )
+            self._handle_data(book_snapshot)
+
+        if self.is_subscribed_orderbook_deltas:
+            # TODO: implement
+            pass
 
 
 if __name__ == "__main__":

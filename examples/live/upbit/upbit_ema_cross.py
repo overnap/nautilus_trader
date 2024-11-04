@@ -13,7 +13,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
-
+import asyncio
 from decimal import Decimal
 
 from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
@@ -139,25 +139,30 @@ class UpbitEMACross(Strategy):
         self.register_indicator_for_bars(self.bar_type, self.fast_ema)
         self.register_indicator_for_bars(self.bar_type, self.slow_ema)
 
+        # Early subscription
+        self.subscribe_quote_ticks(self.instrument_id)
+
         # Get historical data
         self.request_bars(
             self.bar_type,
-            start=self._clock.utc_now() - pd.Timedelta(minutes=2),
+            start=self._clock.utc_now() - pd.Timedelta(minutes=30),
         )
-        # self.request_quote_ticks(self.instrument_id)
-        # self.request_trade_ticks(self.instrument_id)
+
+        async def lazy_subscription():
+            while True:
+                # Wait until historical data is fetched completely
+                if self.cache.has_bars(self.bar_type):
+                    # Subscribe to live data
+                    self.subscribe_bars(self.bar_type)
+                    return
+                else:
+                    await asyncio.sleep(0.1)
+
+        asyncio.get_event_loop().create_task(lazy_subscription())
 
         # Subscribe to live data
-        self.subscribe_bars(self.bar_type)
-
-        if self.config.subscribe_quote_ticks:
-            self.subscribe_quote_ticks(self.instrument_id)
-        if self.config.subscribe_trade_ticks:
-            self.subscribe_trade_ticks(self.instrument_id)
-
-        # self.subscribe_ticker(self.instrument_id)  # For debugging
-        # self.subscribe_order_book_deltas(self.instrument_id, depth=20)  # For debugging
-        self.subscribe_order_book_at_interval(self.instrument_id)  # For debugging
+        # self.subscribe_bars(self.bar_type)
+        # self.subscribe_order_book_at_interval(self.instrument_id)
 
     def on_instrument(self, instrument: Instrument) -> None:
         """
@@ -210,7 +215,7 @@ class UpbitEMACross(Strategy):
 
         """
         # For debugging (must add a subscription)
-        self.log.info(repr(tick), LogColor.CYAN)
+        # self.log.info(repr(tick), LogColor.CYAN)
 
     def on_trade_tick(self, tick: TradeTick) -> None:
         """
@@ -334,6 +339,7 @@ class UpbitEMACross(Strategy):
             The event received.
 
         """
+        self._log.debug(f"Event: {event!r}", LogColor.MAGENTA)
 
     def on_stop(self) -> None:
         """
@@ -346,10 +352,10 @@ class UpbitEMACross(Strategy):
         # Unsubscribe from data
         self.unsubscribe_bars(self.bar_type)
         # self.unsubscribe_quote_ticks(self.instrument_id)
-        self.unsubscribe_trade_ticks(self.instrument_id)
+        # self.unsubscribe_trade_ticks(self.instrument_id)
         # self.unsubscribe_ticker(self.instrument_id)
         # self.unsubscribe_order_book_deltas(self.instrument_id)
-        # self.unsubscribe_order_book_at_interval(self.instrument_id)
+        self.unsubscribe_order_book_at_interval(self.instrument_id)
 
     def on_reset(self) -> None:
         """
@@ -444,11 +450,11 @@ node = TradingNode(config=config_node)
 
 # Configure your strategy
 strat_config = EMACrossConfig(
-    instrument_id=InstrumentId.from_str("KRW-CARV.UPBIT"),
-    external_order_claims=[InstrumentId.from_str("KRW-CARV.UPBIT")],
-    bar_type=BarType.from_str("KRW-CARV.UPBIT-1-SECOND-LAST-EXTERNAL"),
-    fast_ema_period=50,
-    slow_ema_period=100,
+    instrument_id=InstrumentId.from_str("KRW-DOGE.UPBIT"),
+    external_order_claims=[InstrumentId.from_str("KRW-DOGE.UPBIT")],
+    bar_type=BarType.from_str("KRW-DOGE.UPBIT-1-SECOND-LAST-EXTERNAL"),
+    fast_ema_period=300,
+    slow_ema_period=1000,
     trade_size=Decimal("0.010"),
     order_id_tag="001",
 )

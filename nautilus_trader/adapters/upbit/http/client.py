@@ -177,7 +177,6 @@ class UpbitHttpClient:
             payload = None  # Don't send payload in the body
 
         self._log.debug(f"{url_path} {payload}", LogColor.MAGENTA)
-        print(f"{url_path}")
 
         try:
             response: HttpResponse = await self._client.request(

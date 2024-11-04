@@ -15,6 +15,7 @@
 import asyncio
 import sys
 import time
+import traceback
 
 import msgspec
 from nautilus_trader.core.nautilus_pyo3.model import AggregationSource
@@ -514,7 +515,7 @@ class UpbitMarketHttpAPI:
         bars_list: list[list[UpbitBar]] = []
         while True:
             if len(bars_list) > 0:
-                await asyncio.sleep(0.25)  # Hardcoded delay to avoid rate limit
+                await asyncio.sleep(0.5)  # Hardcoded delay to avoid rate limit
             candles = await self.query_candles(
                 symbol=bar_type.instrument_id.symbol.value,
                 interval=interval,
@@ -556,34 +557,33 @@ class UpbitMarketHttpAPI:
             all_bars = all_bars[-limit:]
         if start_time:
             # TODO: 이분탐색으로 최적화 가능한데 200개짜리라 굳이? 싶긴하다. 여유나면 짜기
-            for i, bar in enumerate(reversed(all_bars)):
-                if bar.ts_event < millis_to_nanos(start_time):
-                    all_bars = all_bars[-i:]
+            for i, bar in enumerate(all_bars):
+                if bar.ts_event >= millis_to_nanos(start_time):
+                    all_bars = all_bars[i:]
                     break
 
         return all_bars
 
-    async def request_last_upbit_bar_for_subscribe(
+    async def request_last_two_upbit_bar(
         self,
         bar_type: BarType,
         ts_init: int,
         interval: UpbitCandleInterval,
-    ) -> UpbitBar:
+    ) -> list[UpbitBar]:
         """
         Request Binance Bars from Klines.
         """
         candles = await self.query_candles(
             symbol=bar_type.instrument_id.symbol.value,
             interval=interval,
-            count=1,
+            count=2,
         )
 
         bars: list[UpbitBar] = [
             candle.parse_to_upbit_bar(bar_type, ts_init) for candle in reversed(candles)
         ]
-        assert len(bars) == 1
 
-        return bars[0]
+        return bars
 
     async def query_code_info(self) -> list[UpbitCodeInfo]:
         """

@@ -95,8 +95,8 @@ class UpbitTrade(msgspec.Struct, frozen=True):
         # TODO: market이랑 instrument 비교?
         return TradeTick(
             instrument_id=instrument_id,
-            price=Price.from_str(str(self.trade_price)),
-            size=Quantity.from_str(str(self.trade_volume)),
+            price=Price(self.trade_price, 8),
+            size=Quantity(self.trade_volume, 8),
             aggressor_side=AggressorSide.BUYER if self.ask_bid == "ASK" else AggressorSide.SELLER,
             trade_id=TradeId(str(self.sequential_id)),
             ts_event=millis_to_nanos(self.timestamp),
@@ -138,10 +138,10 @@ class UpbitCandle(msgspec.Struct, frozen=True):
         """
         return UpbitBar(
             bar_type=bar_type,
-            open=Price.from_str(str(self.opening_price)),
-            high=Price.from_str(str(self.high_price)),
-            low=Price.from_str(str(self.low_price)),
-            close=Price.from_str(str(self.trade_price)),
+            open=Price(self.opening_price, 8),
+            high=Price(self.high_price, 8),
+            low=Price(self.low_price, 8),
+            close=Price(self.trade_price, 8),
             volume=Quantity.from_str(str(self.candle_acc_trade_volume)),
             quote_volume=Decimal(str(self.candle_acc_trade_price)),
             ts_event=dt_to_unix_nanos(pd.to_datetime(self.candle_date_time_utc, format="ISO8601")),
@@ -215,7 +215,7 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
         bids: list[BookOrder] = [
             BookOrder(
                 OrderSide.BUY,
-                Price.from_str(str(o.bid_price)),
+                Price(o.bid_price, 8),
                 Quantity.from_str(str(o.bid_size)),
                 0,
             )
@@ -224,7 +224,7 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
         asks: list[BookOrder] = [
             BookOrder(
                 OrderSide.SELL,
-                Price.from_str(str(o.ask_price)),
+                Price(o.ask_price, 8),
                 Quantity.from_str(str(o.ask_size)),
                 0,
             )
@@ -264,6 +264,22 @@ class UpbitOrderbook(msgspec.Struct, frozen=True):
                 )
             )
         return OrderBookDeltas(instrument_id=instrument_id, deltas=deltas)
+
+    def parse_to_quote_tick(
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
+    ) -> QuoteTick:
+        best = self.orderbook_units[0]
+        return QuoteTick(
+            instrument_id=instrument_id,
+            bid_price=Price(best.bid_price, 8),
+            ask_price=Price(best.ask_price, 8),
+            bid_size=Quantity.from_str(str(best.bid_size)),
+            ask_size=Quantity.from_str(str(best.ask_size)),
+            ts_event=millis_to_nanos(self.timestamp),
+            ts_init=ts_init,
+        )
 
 
 class UpbitCodeInfo(msgspec.Struct, frozen=True):
@@ -397,7 +413,7 @@ class UpbitWebSocketTrade(msgspec.Struct):
         # TODO: market이랑 instrument 비교?
         return TradeTick(
             instrument_id=instrument_id,
-            price=Price.from_str(str(self.trade_price)),
+            price=Price(self.trade_price, 8),
             size=Quantity.from_str(str(self.trade_volume)),
             aggressor_side=(
                 AggressorSide.BUYER
@@ -432,7 +448,7 @@ class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
         bids: list[BookOrder] = [
             BookOrder(
                 OrderSide.BUY,
-                Price.from_str(str(o.bid_price)),
+                Price(o.bid_price, 8),
                 Quantity.from_str(str(o.bid_size)),
                 0,
             )
@@ -441,7 +457,7 @@ class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
         asks: list[BookOrder] = [
             BookOrder(
                 OrderSide.SELL,
-                Price.from_str(str(o.ask_price)),
+                Price(o.ask_price, 8),
                 Quantity.from_str(str(o.ask_size)),
                 0,
             )
@@ -481,3 +497,19 @@ class UpbitWebSocketOrderbook(msgspec.Struct, frozen=True):
                 )
             )
         return OrderBookDeltas(instrument_id=instrument_id, deltas=deltas)
+
+    def parse_to_quote_tick(
+        self,
+        instrument_id: InstrumentId,
+        ts_init: int,
+    ) -> QuoteTick:
+        best = self.orderbook_units[0]
+        return QuoteTick(
+            instrument_id=instrument_id,
+            bid_price=Price(best.bid_price, 8),
+            ask_price=Price(best.ask_price, 8),
+            bid_size=Quantity(best.bid_size, 8),
+            ask_size=Quantity(best.ask_size, 8),
+            ts_event=millis_to_nanos(self.timestamp),
+            ts_init=ts_init,
+        )

@@ -117,4 +117,4 @@ class UpbitExecClientConfig(LiveExecClientConfig, frozen=True):
     base_url_ws: str = "wss://api.upbit.com/websocket/v1/private"
     max_retries: PositiveInt = 1
     retry_delay: PositiveFloat = 1.0
-    venue: Venue = BINANCE_VENUE
+    venue: Venue = UPBIT_VENUE

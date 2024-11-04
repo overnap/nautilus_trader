@@ -625,19 +625,21 @@ class UpbitExecutionClient(LiveExecutionClient):
 
     async def _submit_market_order(self, order: MarketOrder) -> UpbitOrder:
         if order.side == OrderSide.BUY:
-            book = self._cache.order_book(order.instrument_id)
-            trade = self._cache.trade_tick(order.instrument_id)
+            last_quote = self._cache.quote_tick(order.instrument_id)
+            last_book = self._cache.order_book(order.instrument_id)
+            last_trade = self._cache.trade_tick(order.instrument_id)
             price: Price
-            if book:
-                price = book.best_ask_price()
-            elif trade:
-                price = trade.price
+            if last_quote is not None:
+                price = last_quote.extract_price(PriceType.ASK)
+            elif last_book is not None:
+                price = last_book.best_ask_price()
+            elif last_trade is not None:
+                price = last_trade.price
             else:
-                self._log.error(
+                raise RuntimeError(
                     "Submiting MARKET BUYING orders to UPBIT requires last price, "
-                    "but orderbook and trade tick are not subscribed."
+                    "but orderbook (or quote tick) and trade tick are not subscribed."
                 )
-                return
 
             return await self._http_exchange.new_order(
                 market=order.instrument_id.symbol.value,

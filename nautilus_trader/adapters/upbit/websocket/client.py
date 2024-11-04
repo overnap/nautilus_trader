@@ -424,7 +424,6 @@ class UpbitWebSocketClient:
                 }
             )
 
-        print(message)
         return message
 
 
