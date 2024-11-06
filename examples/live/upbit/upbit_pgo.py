@@ -14,12 +14,10 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 import asyncio
-from decimal import Decimal
 
-from nautilus_trader.adapters.binance.common.enums import BinanceAccountType
-from nautilus_trader.adapters.binance.config import BinanceDataClientConfig
-from nautilus_trader.adapters.binance.config import BinanceExecClientConfig
-from nautilus_trader.adapters.binance.factories import BinanceLiveExecClientFactory
+from nautilus_trader.core.rust.model import PriceType
+
+from nautilus_trader.adapters.upbit.common.types import UpbitBar
 from nautilus_trader.adapters.upbit.config import UpbitDataClientConfig, UpbitExecClientConfig
 from nautilus_trader.adapters.upbit.factories import (
     UpbitLiveDataClientFactory,
@@ -31,6 +29,13 @@ from nautilus_trader.config import LoggingConfig
 from nautilus_trader.config import TradingNodeConfig
 from nautilus_trader.examples.strategies.ema_cross import EMACross
 from nautilus_trader.examples.strategies.ema_cross import EMACrossConfig
+from nautilus_trader.indicators.average.sma import SimpleMovingAverage
+
+from nautilus_trader.indicators.average.moving_average import MovingAverageType, MovingAverage
+
+from nautilus_trader.indicators.average.ma_factory import MovingAverageFactory
+
+from nautilus_trader.indicators.atr import AverageTrueRange
 from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId
@@ -87,7 +92,20 @@ from nautilus_trader.trading.strategy import Strategy
 # *** IT IS NOT INTENDED TO BE USED TO TRADE LIVE WITH REAL MONEY. ***
 
 
-class UpbitEMACross(Strategy):
+class PGOConfig(StrategyConfig, frozen=True):
+    instrument_id: InstrumentId
+    bar_type: BarType
+    ma_type: MovingAverageType = MovingAverageType.SIMPLE
+    ma_period: PositiveInt = 50
+    ema_period: PositiveInt = 3
+    signal_long: float = -8
+    signal_exit_long: float = 6
+    signal_take_profit: float = 8
+    signal_stop_loss: float = -9
+    close_positions_on_stop: bool = True
+
+
+class UpbitPGO(Strategy):
     """
     A simple moving average cross example strategy.
 
@@ -96,7 +114,7 @@ class UpbitEMACross(Strategy):
 
     Parameters
     ----------
-    config : EMACrossConfig
+    config : PGOConfig
         The configuration for the instance.
 
     Raises
@@ -106,24 +124,30 @@ class UpbitEMACross(Strategy):
 
     """
 
-    def __init__(self, config: EMACrossConfig) -> None:
-        PyCondition.true(
-            config.fast_ema_period < config.slow_ema_period,
-            "{config.fast_ema_period=} must be less than {config.slow_ema_period=}",
-        )
+    def __init__(self, config: PGOConfig) -> None:
         super().__init__(config)
 
         # Configuration
         self.instrument_id = config.instrument_id
         self.bar_type = config.bar_type
-        self.trade_size = config.trade_size
 
         # Create the indicators for the strategy
-        self.fast_ema = ExponentialMovingAverage(config.fast_ema_period)
-        self.slow_ema = ExponentialMovingAverage(config.slow_ema_period)
+        self.ma = MovingAverageFactory.create(config.ma_period, config.ma_type)
+        self.atr = AverageTrueRange(config.ma_period, config.ma_type)
+        self.pgo = ExponentialMovingAverage(config.ema_period)
+
+        self.signal_long = config.signal_long
+        self.signal_exit_long = config.signal_exit_long
+        self.signal_take_profit = config.signal_take_profit
+        self.signal_stop_loss = config.signal_stop_loss
 
         self.close_positions_on_stop = config.close_positions_on_stop
         self.instrument: Instrument = None
+
+        self.last_pgo = None
+        self.swing_half = False
+        self.ts_trade = 0
+        self.ts_log = 0
 
     def on_start(self) -> None:
         """
@@ -136,8 +160,8 @@ class UpbitEMACross(Strategy):
             return
 
         # Register the indicators for updating
-        self.register_indicator_for_bars(self.bar_type, self.fast_ema)
-        self.register_indicator_for_bars(self.bar_type, self.slow_ema)
+        self.register_indicator_for_bars(self.bar_type, self.ma)
+        self.register_indicator_for_bars(self.bar_type, self.atr)
 
         # Early subscription
         self.subscribe_quote_ticks(self.instrument_id)
@@ -159,10 +183,6 @@ class UpbitEMACross(Strategy):
                     await asyncio.sleep(0.1)
 
         asyncio.get_event_loop().create_task(lazy_subscription())
-
-        # Subscribe to live data
-        # self.subscribe_bars(self.bar_type)
-        # self.subscribe_order_book_at_interval(self.instrument_id)
 
     def on_instrument(self, instrument: Instrument) -> None:
         """
@@ -240,7 +260,7 @@ class UpbitEMACross(Strategy):
             The bar received.
 
         """
-        self.log.info(repr(bar), LogColor.CYAN)
+        # self.log.info(repr(bar), LogColor.CYAN)
 
         # Check if indicators ready
         if not self.indicators_initialized():
@@ -254,20 +274,44 @@ class UpbitEMACross(Strategy):
         #     # Implies no market information for this bar
         #     return
 
-        # BUY LOGIC
-        if self.fast_ema.value >= self.slow_ema.value:
-            if self.portfolio.is_flat(self.instrument_id):
+        last_pgo = self.pgo.value
+        self.pgo.update_raw((bar.close.as_double() - self.ma.value) / self.atr.value)
+
+        if self.portfolio.is_flat(self.instrument_id):
+            # Long signal
+            if last_pgo <= self.signal_long < self.pgo.value:
                 self.buy()
-            elif self.portfolio.is_net_short(self.instrument_id):
-                self.close_all_positions(self.instrument_id)
-                self.buy()
-        # SELL LOGIC
-        elif self.fast_ema.value < self.slow_ema.value:
-            if self.portfolio.is_flat(self.instrument_id):
+                self.log.info(f"Buy at PGO {self.pgo.value}")
+                self.swing_half = False
+                self.ts_trade = self.clock.timestamp_ns()
+            # Record the half-swing
+            if self.pgo.value >= self.signal_exit_long / 2:
+                self.swing_half = True
+        elif self.portfolio.is_net_long(self.instrument_id):
+            # Take profit (high price)
+            if last_pgo >= self.signal_take_profit > self.pgo.value:
                 self.sell()
-            elif self.portfolio.is_net_long(self.instrument_id):
-                self.close_all_positions(self.instrument_id)
+                self.log.info(f"Sell at PGO {self.pgo.value}")
+            # Exit long signal
+            elif last_pgo >= self.signal_exit_long > self.pgo.value:
                 self.sell()
+                self.log.info(f"Sell at PGO {self.pgo.value}")
+            # Stop loss (too many loss)
+            elif last_pgo > self.signal_stop_loss >= self.pgo.value:
+                self.sell()
+                self.log.info(f"Stop loss (too many loss) at PGO {self.pgo.value}")
+            # Stop loss (sidestep exit)
+            elif self.swing_half and last_pgo > 0 >= self.pgo.value:
+                self.sell()
+                self.log.info(f"Stop loss (sidestep exit) at PGO {self.pgo.value}")
+
+        delay = int(1e9) * 3  # 3 secs
+        if self.ts_log + delay <= self.clock.timestamp_ns():
+            self.log.info(
+                f"PGO value: {self.pgo.value}, Price: {self.cache.price(self.instrument_id, PriceType.ASK)}",
+                LogColor.CYAN,
+            )
+            self.ts_log = self.clock.timestamp_ns()
 
     def buy(self) -> None:
         """
@@ -362,8 +406,9 @@ class UpbitEMACross(Strategy):
         Actions to be performed when the strategy is reset.
         """
         # Reset indicators here
-        self.fast_ema.reset()
-        self.slow_ema.reset()
+        self.ma.reset()
+        self.atr.reset()
+        self.pgo.reset()
 
     def on_save(self) -> dict[str, bytes]:
         """
@@ -449,17 +494,22 @@ config_node = TradingNodeConfig(
 node = TradingNode(config=config_node)
 
 # Configure your strategy
-strat_config = EMACrossConfig(
+strat_config = PGOConfig(
     instrument_id=InstrumentId.from_str("KRW-DOGE.UPBIT"),
     external_order_claims=[InstrumentId.from_str("KRW-DOGE.UPBIT")],
     bar_type=BarType.from_str("KRW-DOGE.UPBIT-1-SECOND-LAST-EXTERNAL"),
-    fast_ema_period=300,
-    slow_ema_period=1000,
-    trade_size=Decimal("0.010"),
+    ma_type=MovingAverageType.SIMPLE,
+    ma_period=300,
+    ema_period=5,
+    signal_long=-8,
+    signal_take_profit=12,
+    signal_exit_long=6,
+    signal_stop_loss=-8.5,
+    close_positions_on_stop=True,
     order_id_tag="001",
 )
 # Instantiate your strategy
-strategy = UpbitEMACross(config=strat_config)
+strategy = UpbitPGO(config=strat_config)
 
 # Add your strategies and modules
 node.trader.add_strategy(strategy)

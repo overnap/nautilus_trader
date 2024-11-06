@@ -790,7 +790,6 @@ class UpbitExecutionClient(LiveExecutionClient):
     def _handle_ws_message(self, raw: bytes) -> None:
         # TODO: Uncomment for development
         # self._log.info(str(json.dumps(msgspec.json.decode(raw), indent=4)), color=LogColor.MAGENTA)
-        print(str(msgspec.json.decode(raw)))
         msg = self._decoder_ws_message.decode(raw)
         try:
             self._ws_handlers[msg.type](raw)
@@ -864,6 +863,7 @@ class UpbitExecutionClient(LiveExecutionClient):
 
     def _handle_asset_update(self, raw: bytes) -> None:
         asset_msg = self._decoder_asset_update.decode(raw)
+
         self.generate_account_state(
             balances=[asset.parse_to_account_balance() for asset in asset_msg.assets],
             margins=[],
