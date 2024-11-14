@@ -85,6 +85,7 @@ from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.objects import Quantity
 
+from nautilus_trader.serialization.base import register_serializable_type
 from nautilus_trader.test_kit.mocks.cache_database import MockCacheDatabase
 from nautilus_trader.test_kit.stubs.identifiers import TestIdStubs
 
@@ -146,6 +147,9 @@ class UpbitDataClient(LiveMarketDataClient):
             clock=clock,
             instrument_provider=instrument_provider,
         )
+
+        register_serializable_type(UpbitBar, UpbitBar.to_dict, UpbitBar.from_dict)
+        register_serializable_type(UpbitTicker, UpbitTicker.to_dict, UpbitTicker.from_dict)
 
         # Configuration
 

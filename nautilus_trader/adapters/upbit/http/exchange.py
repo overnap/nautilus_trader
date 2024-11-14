@@ -128,8 +128,8 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
         limit: int = 100
         order_by: UpbitOrderBy = UpbitOrderBy.DESC
         # TODO: 나중에 구현할 필요가 있을 수도 있음. 지금 인터페이스로는 크게 필요 없어 보임.
-        # states: list[UpbitOrderStatus] = [UpbitOrderStatus.WAIT, UpbitOrderStatus.WATCH]
-        # page: int = 1
+        states: tuple[UpbitOrderStatus] = (UpbitOrderStatus.WAIT, UpbitOrderStatus.WATCH)
+        page: int = 1
 
     class GetClosedParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         market: str
@@ -138,7 +138,7 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
         limit: int = 1000
         order_by: UpbitOrderBy = UpbitOrderBy.DESC
         # TODO: 나중에 구현할 필요가 있을 수도 있음. 지금 인터페이스로는 크게 필요 없어 보임.
-        # states: list[UpbitOrderStatus] = [UpbitOrderStatus.CANCEL, UpbitOrderStatus.DONE]
+        states: tuple[UpbitOrderStatus] = (UpbitOrderStatus.CANCEL, UpbitOrderStatus.DONE)
 
     async def post(self, params: PostParameters) -> UpbitOrder:
         if (
@@ -161,7 +161,7 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
             raise ValueError(f"`limit` must be in range [1, 100], was {params.limit}")
 
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params, add_path="open", ratelimiter_keys=[])
+        raw = await self._method(method_type, params, add_path="/open", ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
     async def get_closed(self, params: GetClosedParameters) -> list[UpbitOrder]:
@@ -169,7 +169,7 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
             raise ValueError(f"`limit` must be in range [1, 1000], was {params.limit}")
 
         method_type = HttpMethod.GET
-        raw = await self._method(method_type, params, add_path="closed", ratelimiter_keys=[])
+        raw = await self._method(method_type, params, add_path="/closed", ratelimiter_keys=[])
         return self._get_resp_decoder.decode(raw)
 
 
@@ -279,7 +279,7 @@ class UpbitExchangeHttpAPI:
             return await self._endpoint_orders.get_closed(
                 params=self._endpoint_orders.GetClosedParameters(
                     market=str(market),
-                    start_time=start_time.isoformat(),
-                    end_time=end_time.isoformat(),
+                    start_time=start_time.isoformat() if start_time else None,
+                    end_time=end_time.isoformat() if end_time else None,
                 )
             )

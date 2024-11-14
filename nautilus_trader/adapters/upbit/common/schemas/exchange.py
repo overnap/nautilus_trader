@@ -209,7 +209,7 @@ class UpbitOrder(msgspec.Struct, frozen=True, omit_defaults=True):
             client_order_id=client_order_id,
             order_list_id=order_list_id,
             venue_order_id=VenueOrderId(str(self.uuid)),
-            order_side=enum_parser.parse_upbit_order_side(self.side),
+            order_side=enum_parser.parse_upbit_order_side_http(self.side),
             order_type=enum_parser.parse_upbit_order_type(self.ord_type),
             contingency_type=contingency_type,
             time_in_force=enum_parser.parse_upbit_time_in_force(self.time_in_force),

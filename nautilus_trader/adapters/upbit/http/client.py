@@ -118,7 +118,7 @@ class UpbitHttpClient:
 
     def _prepare_params(self, params: dict[str, Any]) -> str:
         # Encode a dict into a URL query string
-        return urllib.parse.urlencode(params)
+        return urllib.parse.unquote(urllib.parse.urlencode(params, doseq=True))
 
     def _get_auth(self, data: str) -> str:
         m = hashlib.sha512()

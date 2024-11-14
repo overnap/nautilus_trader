@@ -62,6 +62,7 @@ from nautilus_trader.adapters.upbit.http.market import UpbitMarketHttpAPI
 from nautilus_trader.adapters.upbit.http.exchange import UpbitExchangeHttpAPI
 from nautilus_trader.adapters.upbit.spot.providers import UpbitInstrumentProvider
 from nautilus_trader.adapters.upbit.websocket.client import UpbitWebSocketClient
+from nautilus_trader.cache import CacheDatabaseAdapter
 from nautilus_trader.cache.cache import Cache
 from nautilus_trader.common.component import LiveClock
 from nautilus_trader.common.component import MessageBus
@@ -851,7 +852,16 @@ class UpbitExecutionClient(LiveExecutionClient):
                 ts_event=millis_to_nanos(order_msg.trade_timestamp),
             )
         elif order_msg.state == UpbitOrderStatus.DONE:
-            pass  # TODO: 따로 필요 없나?
+            self.generate_order_updated(
+                strategy_id=strategy_id,
+                instrument_id=instrument_id,
+                client_order_id=client_order_id,
+                venue_order_id=venue_order_id,
+                quantity=Quantity.from_str(str(order_msg.volume)),
+                price=Price.from_str(str(order_msg.avg_price)),
+                trigger_price=None,
+                ts_event=millis_to_nanos(order_msg.timestamp),
+            )
         elif order_msg.state == UpbitOrderStatus.CANCEL:
             self.generate_order_canceled(
                 strategy_id=strategy_id,
@@ -882,6 +892,7 @@ if __name__ == "__main__":
         clock=clock,
     )
 
+    CacheDatabaseAdapter
     cache_db = MockCacheDatabase()
 
     cache = Cache(
