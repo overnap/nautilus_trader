@@ -15,24 +15,18 @@
 
 //! Module for wrapping raw socket streams with TLS encryption.
 
-use rustls;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{
-    tungstenite::{
-        client::IntoClientRequest,
-        handshake::client::{Request, Response},
-        stream::Mode,
-        Error,
-    },
+    tungstenite::{handshake::client::Request, stream::Mode, Error},
     MaybeTlsStream,
 };
-use tungstenite;
 
 /// A connector that can be used when establishing connections, allowing to control whether
 /// `native-tls` or `rustls` is used to create a TLS connection. Or TLS can be disabled with the
 /// `Plain` variant.
 #[non_exhaustive]
 #[derive(Clone)]
+#[allow(dead_code)]
 pub enum Connector {
     /// No TLS connection.
     Plain,
@@ -45,8 +39,9 @@ mod encryption {
     pub mod rustls {
         use std::{convert::TryFrom, sync::Arc};
 
+        use nautilus_cryptography::tls::create_tls_config;
+        use rustls::pki_types::ServerName;
         pub use rustls::ClientConfig;
-        use rustls::{pki_types::ServerName, RootCertStore};
         use tokio::io::{AsyncRead, AsyncWrite};
         use tokio_rustls::TlsConnector as TokioTlsConnector;
         use tokio_tungstenite::{
@@ -68,16 +63,7 @@ mod encryption {
                 Mode::Tls => {
                     let config = match tls_connector {
                         Some(config) => config,
-                        None => {
-                            #[allow(unused_mut)]
-                            let mut root_store = RootCertStore::empty();
-
-                            Arc::new(
-                                ClientConfig::builder()
-                                    .with_root_certificates(root_store)
-                                    .with_no_client_auth(),
-                            )
-                        }
+                        None => create_tls_config(),
                     };
                     let domain = ServerName::try_from(domain.as_str())
                         .map_err(|_| TlsError::InvalidDnsName)?
@@ -139,7 +125,7 @@ where
     }
 }
 
-fn domain(request: &tungstenite::handshake::client::Request) -> Result<String, Error> {
+fn domain(request: &Request) -> Result<String, Error> {
     match request.uri().host() {
         // rustls expects IPv6 addresses without the surrounding [] brackets
         Some(d) if d.starts_with('[') && d.ends_with(']') => Ok(d[1..d.len() - 1].to_string()),

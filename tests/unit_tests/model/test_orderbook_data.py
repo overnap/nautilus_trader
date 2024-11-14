@@ -485,12 +485,50 @@ def test_deltas_batching() -> None:
     delta5 = TestDataStubs.order_book_delta(flags=RecordFlag.F_LAST)
 
     # Act
-    deltas = OrderBookDeltas.batch([delta1, delta2, delta3, delta4, delta5])
+    batches = OrderBookDeltas.batch(
+        [
+            delta1,
+            delta2,
+            delta3,
+            delta4,
+            delta5,
+        ],
+    )
 
     # Assert
-    assert len(deltas) == 2
-    assert isinstance(deltas[0], OrderBookDeltas)
-    assert isinstance(deltas[1], OrderBookDeltas)
+    assert len(batches) == 2
+    assert isinstance(batches[0], OrderBookDeltas)
+    assert isinstance(batches[1], OrderBookDeltas)
+
+
+def test_deltas_batching_with_remainder() -> None:
+    # Arrange
+    delta1 = TestDataStubs.order_book_delta(flags=0)
+    delta2 = TestDataStubs.order_book_delta(flags=RecordFlag.F_LAST)
+    delta3 = TestDataStubs.order_book_delta(flags=0)
+    delta4 = TestDataStubs.order_book_delta(flags=0)
+    delta5 = TestDataStubs.order_book_delta(flags=RecordFlag.F_LAST)
+    delta6 = TestDataStubs.order_book_delta(flags=0)
+    delta7 = TestDataStubs.order_book_delta(flags=0)
+
+    # Act
+    batches = OrderBookDeltas.batch(
+        [
+            delta1,
+            delta2,
+            delta3,
+            delta4,
+            delta5,
+            delta6,
+            delta7,
+        ],
+    )
+
+    # Assert
+    assert len(batches) == 3
+    assert isinstance(batches[0], OrderBookDeltas)
+    assert isinstance(batches[1], OrderBookDeltas)
+    assert isinstance(batches[2], OrderBookDeltas)
 
 
 def test_deltas_to_dict_from_dict_round_trip() -> None:
@@ -652,6 +690,28 @@ def test_depth10_new() -> None:
         sequence=1,
         ts_event=2,
         ts_init=3,
+    )
+
+    # Assert
+    assert depth.instrument_id == instrument_id
+    assert len(depth.bids) == 10
+    assert len(depth.asks) == 10
+    assert depth.flags == 0
+    assert depth.sequence == 1
+    assert depth.ts_event == 2
+    assert depth.ts_init == 3
+
+
+def test_depth10_partial_levels() -> None:
+    # Arrange, Act
+    instrument_id = TestIdStubs.aapl_xnas_id()
+    depth = TestDataStubs.order_book_depth10(
+        instrument_id=instrument_id,
+        flags=0,
+        sequence=1,
+        ts_event=2,
+        ts_init=3,
+        levels=3,
     )
 
     # Assert

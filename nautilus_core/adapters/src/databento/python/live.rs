@@ -12,8 +12,8 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
-
-use std::{fs, i128, str::FromStr};
+#![allow(clippy::legacy_numeric_constants)]
+use std::{fs, i128, path::PathBuf, str::FromStr};
 
 use databento::{dbn, live::Subscription};
 use indexmap::IndexMap;
@@ -40,10 +40,8 @@ pub struct DatabentoLiveClient {
     pub key: String,
     #[pyo3(get)]
     pub dataset: String,
-    #[pyo3(get)]
-    pub is_running: bool,
-    #[pyo3(get)]
-    pub is_closed: bool,
+    is_running: bool,
+    is_closed: bool,
     cmd_tx: tokio::sync::mpsc::UnboundedSender<LiveCommand>,
     cmd_rx: Option<tokio::sync::mpsc::UnboundedReceiver<LiveCommand>>,
     buffer_size: usize,
@@ -64,7 +62,7 @@ impl DatabentoLiveClient {
         tracing::debug!("Processing messages...");
         // Continue to process messages until channel is hung up
         while let Some(msg) = msg_rx.recv().await {
-            tracing::trace!("Received message: {:?}", msg);
+            tracing::trace!("Received message: {msg:?}");
             let result = match msg {
                 LiveMessage::Data(data) => Python::with_gil(|py| {
                     let py_obj = data_to_pycapsule(py, data);
@@ -72,7 +70,7 @@ impl DatabentoLiveClient {
                 }),
                 LiveMessage::Instrument(data) => Python::with_gil(|py| {
                     let py_obj =
-                        instrument_any_to_pyobject(py, data).expect("Error creating instrument");
+                        instrument_any_to_pyobject(py, data).expect("Failed creating instrument");
                     call_python(py, &callback, py_obj)
                 }),
                 LiveMessage::Status(data) => Python::with_gil(|py| {
@@ -122,8 +120,8 @@ fn call_python(py: Python, callback: &PyObject, py_obj: PyObject) -> PyResult<()
 #[pymethods]
 impl DatabentoLiveClient {
     #[new]
-    pub fn py_new(key: String, dataset: String, publishers_path: String) -> PyResult<Self> {
-        let publishers_json = fs::read_to_string(publishers_path)?;
+    pub fn py_new(key: String, dataset: String, publishers_filepath: PathBuf) -> PyResult<Self> {
+        let publishers_json = fs::read_to_string(publishers_filepath)?;
         let publishers_vec: Vec<DatabentoPublisher> =
             serde_json::from_str(&publishers_json).map_err(to_pyvalue_err)?;
         let publisher_venue_map = publishers_vec
@@ -148,7 +146,18 @@ impl DatabentoLiveClient {
         })
     }
 
+    #[pyo3(name = "is_running")]
+    const fn py_is_running(&self) -> bool {
+        self.is_running
+    }
+
+    #[pyo3(name = "is_closed")]
+    const fn py_is_closed(&self) -> bool {
+        self.is_closed
+    }
+
     #[pyo3(name = "subscribe")]
+    #[pyo3(signature = (schema, symbols, start=None, snapshot=None))]
     fn py_subscribe(
         &mut self,
         schema: String,
@@ -157,7 +166,7 @@ impl DatabentoLiveClient {
         snapshot: Option<bool>,
     ) -> PyResult<()> {
         let stype_in = infer_symbology_type(symbols.first().unwrap());
-        let symbols: Vec<&str> = symbols.iter().map(|s| s.as_str()).collect();
+        let symbols: Vec<&str> = symbols.iter().map(std::string::String::as_str).collect();
         check_consistent_symbology(symbols.as_slice()).map_err(to_pyvalue_err)?;
         let mut sub = Subscription::builder()
             .symbols(symbols)
@@ -210,7 +219,7 @@ impl DatabentoLiveClient {
 
         self.send_command(LiveCommand::Start)?;
 
-        pyo3_asyncio_0_21::tokio::future_into_py(py, async move {
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let (proc_handle, feed_handle) = tokio::join!(
                 Self::process_messages(msg_rx, callback, callback_pyo3),
                 feed_handler.run(),

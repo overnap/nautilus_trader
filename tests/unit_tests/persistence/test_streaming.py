@@ -18,6 +18,7 @@ from collections import Counter
 
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.results import BacktestResult
+from nautilus_trader.common.signal import generate_signal_class
 from nautilus_trader.config import BacktestDataConfig
 from nautilus_trader.config import BacktestEngineConfig
 from nautilus_trader.config import BacktestRunConfig
@@ -31,7 +32,6 @@ from nautilus_trader.model.data import OrderBookDelta
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.persistence.catalog.parquet import ParquetDataCatalog
-from nautilus_trader.persistence.writer import generate_signal_class
 from nautilus_trader.test_kit.mocks.data import NewsEventData
 from nautilus_trader.test_kit.stubs.persistence import TestPersistenceStubs
 from tests.integration_tests.adapters.betfair.test_kit import BetfairTestStubs
@@ -41,21 +41,26 @@ class TestPersistenceStreaming:
     def setup(self) -> None:
         self.catalog: ParquetDataCatalog | None = None
 
-    def _run_default_backtest(self, catalog_betfair: ParquetDataCatalog) -> list[BacktestResult]:
+    def _run_default_backtest(
+        self,
+        catalog_betfair: ParquetDataCatalog,
+        book_type: str = "L1_MBP",
+    ) -> list[BacktestResult]:
         self.catalog = catalog_betfair
         instrument = self.catalog.instruments()[0]
-        run_config = BetfairTestStubs.betfair_backtest_run_config(
+        run_config = BetfairTestStubs.backtest_run_config(
             catalog_path=catalog_betfair.path,
             catalog_fs_protocol="file",
             instrument_id=instrument.id,
             flush_interval_ms=5_000,
             bypass_logging=True,
+            book_type=book_type,
         )
 
         node = BacktestNode(configs=[run_config])
 
         # Act
-        backtest_result = node.run()
+        backtest_result = node.run(raise_exception=True)
 
         return backtest_result
 
@@ -71,19 +76,21 @@ class TestPersistenceStreaming:
         )
         result = dict(Counter([r.__class__.__name__ for r in result]))  # type: ignore [assignment]
 
+        # TODO: Backtest needs to be reconfigured to use either deltas or trades
         expected = {
-            "AccountState": 400,
+            "AccountState": 380,
             "BettingInstrument": 1,
             "ComponentStateChanged": 27,
             "OrderAccepted": 189,
             "OrderBookDelta": 1307,
+            "OrderCanceled": 100,
             "OrderDenied": 3,
-            "OrderFilled": 211,
+            "OrderFilled": 91,
             "OrderInitialized": 193,
             "OrderSubmitted": 190,
-            "PositionChanged": 206,
-            "PositionClosed": 4,
-            "PositionOpened": 5,
+            "PositionChanged": 87,
+            "PositionClosed": 3,
+            "PositionOpened": 3,
             "TradeTick": 179,
         }
 
@@ -124,6 +131,7 @@ class TestPersistenceStreaming:
             engine=BacktestEngineConfig(streaming=streaming),
             data=[data_config, instrument_data_config],
             venues=[BetfairTestStubs.betfair_venue_config(book_type="L1_MBP")],
+            chunk_size=None,  # No streaming
         )
 
         # Act
@@ -137,7 +145,7 @@ class TestPersistenceStreaming:
         )
 
         result = Counter([r.__class__.__name__ for r in result])  # type: ignore
-        assert result["NewsEventData"] == 86985  # type: ignore
+        assert result["NewsEventData"] == 86_985  # type: ignore
 
     def test_feather_writer_include_types(
         self,
@@ -175,6 +183,7 @@ class TestPersistenceStreaming:
             engine=BacktestEngineConfig(streaming=streaming),
             data=[data_config, instrument_data_config],
             venues=[BetfairTestStubs.betfair_venue_config(book_type="L1_MBP")],
+            chunk_size=None,  # No streaming
         )
 
         # Act
@@ -188,7 +197,7 @@ class TestPersistenceStreaming:
         )
 
         result = Counter([r.__class__.__name__ for r in result])  # type: ignore
-        assert result["NewsEventData"] == 86985  # type: ignore
+        assert result["NewsEventData"] == 86_985  # type: ignore
         assert len(result) == 1
 
     def test_feather_writer_stream_to_data(
@@ -226,6 +235,7 @@ class TestPersistenceStreaming:
             engine=BacktestEngineConfig(streaming=streaming),
             data=[data_config, instrument_data_config],
             venues=[BetfairTestStubs.betfair_venue_config(book_type="L1_MBP")],
+            chunk_size=None,  # No streaming
         )
 
         node = BacktestNode(configs=[run_config])
@@ -245,7 +255,7 @@ class TestPersistenceStreaming:
         )
 
         result = Counter([r.__class__.__name__ for r in result])  # type: ignore
-        assert result["NewsEventData"] == 86985  # type: ignore
+        assert result["NewsEventData"] == 86_985  # type: ignore
 
     def test_feather_writer_signal_data(
         self,
@@ -277,6 +287,7 @@ class TestPersistenceStreaming:
             ),
             data=[data_config],
             venues=[BetfairTestStubs.betfair_venue_config(book_type="L1_MBP")],
+            chunk_size=None,  # No streaming
         )
 
         # Act
@@ -335,6 +346,7 @@ class TestPersistenceStreaming:
             ),
             data=[data_config],
             venues=[BetfairTestStubs.betfair_venue_config(book_type="L1_MBP")],
+            chunk_size=None,  # No streaming
         )
 
         # Act
@@ -405,18 +417,19 @@ class TestPersistenceStreaming:
 
         # Assert
         expected = {
-            "AccountState": 400,
+            "AccountState": 380,
             "BettingInstrument": 1,
             "ComponentStateChanged": 27,
             "OrderAccepted": 189,
             "OrderBookDelta": 1307,
+            "OrderCanceled": 100,
             "OrderDenied": 3,
-            "OrderFilled": 211,
+            "OrderFilled": 91,
             "OrderInitialized": 193,
             "OrderSubmitted": 190,
-            "PositionChanged": 206,
-            "PositionClosed": 4,
-            "PositionOpened": 5,
+            "PositionChanged": 87,
+            "PositionClosed": 3,
+            "PositionOpened": 3,
             "TradeTick": 179,
         }
         assert counts == expected

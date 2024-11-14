@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import datetime
+import datetime as dt
 import itertools
 import os
 import platform
@@ -8,10 +8,10 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tomllib
 from pathlib import Path
 
 import numpy as np
-import toml
 from Cython.Build import build_ext
 from Cython.Build import cythonize
 from Cython.Compiler import Options
@@ -56,10 +56,8 @@ if platform.system() == "Linux":
     os.environ["LDSHARED"] = "clang -shared"
 
 if platform.system() == "Darwin" and platform.machine() == "arm64":
-    TARGET_DIR = Path.cwd() / "nautilus_core" / "target" / "aarch64-apple-darwin" / BUILD_MODE
     os.environ["CFLAGS"] = "-arch arm64"
     os.environ["LDFLAGS"] = "-arch arm64 -w"
-
 
 if platform.system() == "Windows":
     # Linker error 1181
@@ -89,17 +87,14 @@ RUST_LIBS: list[str] = [str(path) for path in RUST_LIB_PATHS]
 
 
 def _build_rust_libs() -> None:
+    print("Compiling Rust libraries...")
+
     try:
         # Build the Rust libraries using Cargo
         if RUST_TOOLCHAIN not in ("stable", "nightly"):
             raise ValueError(f"Invalid `RUST_TOOLCHAIN` '{RUST_TOOLCHAIN}'")
 
         build_options = " --release" if BUILD_MODE == "release" else ""
-
-        if platform.system() == "Darwin" and platform.machine() == "arm64":
-            build_options += " --target aarch64-apple-darwin"
-
-        print("Compiling Rust libraries...")
 
         cmd_args = [
             "cargo",
@@ -351,7 +346,9 @@ def build() -> None:
 
 
 if __name__ == "__main__":
-    nautilus_trader_version = toml.load("pyproject.toml")["tool"]["poetry"]["version"]
+    with open("pyproject.toml", "rb") as f:
+        pyproject_data = tomllib.load(f)
+    nautilus_trader_version = pyproject_data["tool"]["poetry"]["version"]
     print("\033[36m")
     print("=====================================================================")
     print(f"Nautilus Builder {nautilus_trader_version}")
@@ -371,11 +368,18 @@ if __name__ == "__main__":
     print(f"PARALLEL_BUILD={PARALLEL_BUILD}")
     print(f"COPY_TO_SOURCE={COPY_TO_SOURCE}")
     print(f"PYO3_ONLY={PYO3_ONLY}")
+    print(f"CC={os.environ['CC']}") if "CC" in os.environ else None
+    print(f"LDSHARED={os.environ['LDSHARED']}") if "LDSHARED" in os.environ else None
     print(f"CFLAGS={os.environ['CFLAGS']}") if "CFLAGS" in os.environ else None
     print(f"LDFLAGS={os.environ['LDFLAGS']}") if "LDFLAGS" in os.environ else None
+    (
+        print(f"LD_LIBRARY_PATH={os.environ['LD_LIBRARY_PATH']}")
+        if "LD_LIBRARY_PATH" in os.environ
+        else None
+    )
 
     print("\nStarting build...")
-    ts_start = datetime.datetime.now(datetime.timezone.utc)
+    ts_start = dt.datetime.now(dt.UTC)
     build()
-    print(f"Build time: {datetime.datetime.now(datetime.timezone.utc) - ts_start}")
+    print(f"Build time: {dt.datetime.now(dt.UTC) - ts_start}")
     print("\033[32m" + "Build completed" + "\033[0m")

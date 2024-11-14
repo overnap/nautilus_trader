@@ -11,17 +11,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64]
         os: [ubuntu-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
     defaults:
       run:
         shell: bash
-    name: build - Python ${{ matrix.python-version }} (${{ matrix.arch }} ${{ matrix.os }})
+    name: build - Python ${{ matrix.python-version }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
       BUILD_MODE: debug
       RUST_BACKTRACE: 1
+
     services:
       redis:
         image: redis
@@ -60,19 +60,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get Rust version from rust-toolchain.toml
-        id: rust-version
+      - name: Set up Rust toolchain
         run: |
-          version=$(awk -F\" '/version/ {print $2}' nautilus_core/rust-toolchain.toml)
-          echo "Rust toolchain version $version"
-          echo "RUST_VERSION=$version" >> $GITHUB_ENV
-        working-directory: ${{ github.workspace }}
-
-      - name: Set up Rust tool-chain (Linux, Windows) stable
-        uses: actions-rust-lang/setup-rust-toolchain@v1.8
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          components: rustfmt, clippy
+          rustup toolchain add --profile minimal stable --component clippy,rustfmt
 
       - name: Set up Python environment
         uses: actions/setup-python@v5
@@ -81,7 +71,7 @@ jobs:
 
       - name: Get Python version
         run: |
-          version=$(python -c "import sys; print('.'.join(map(str, sys.version_info[:3])))")
+          version=$(bash scripts/python-version.sh)
           echo "PYTHON_VERSION=$version" >> $GITHUB_ENV
 
       - name: Get Poetry version from poetry-version
@@ -95,7 +85,7 @@ jobs:
           version: ${{ env.POETRY_VERSION }}
 
       - name: Install build dependencies
-        run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
+        run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec pytest-codspeed
 
       # ta-lib Python install currently broken
       # https://github.com/TA-Lib/ta-lib-python/issues/655
@@ -104,14 +94,14 @@ jobs:
       #     make install-talib
       #     poetry run pip install setuptools numpy==1.26.4 ta-lib
 
-      - name: Set up cached pre-commit
+      - name: Cached pre-commit
         id: cached-pre-commit
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
           key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: Set up cached cargo
+      - name: Cached cargo
         id: cached-cargo
         uses: actions/cache@v4
         with:
@@ -127,12 +117,20 @@ jobs:
       - name: Set poetry cache-dir
         run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
 
-      - name: Poetry cache
+      - name: Cached poetry
         id: cached-poetry
         uses: actions/cache@v4
         with:
           path: ${{ env.POETRY_CACHE_DIR }}
           key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Cached test data
+        id: cached-testdata-large
+        uses: actions/cache@v4
+        with:
+          path: tests/test_data/large
+          key: ${{ runner.os }}-large-files-${{ hashFiles('tests/test_data/large/checksums.json') }}
+          restore-keys: ${{ runner.os }}-large-files-
 
       - name: Run pre-commit
         run: |
@@ -166,17 +164,24 @@ jobs:
           make pytest
           make test-examples
 
+      # Run codspeed for latest python-version only
+      # - name: Run benchmarks (Linux)
+      #   if: ${{ matrix.python-version == '3.12' }}
+      #   uses: CodSpeedHQ/action@v3
+      #   with:
+      #     token: ${{ secrets.CODSPEED_TOKEN }}
+      #     run: make test-performance
+
   build-windows:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64]
         os: [windows-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
     defaults:
       run:
         shell: bash
-    name: build - Python ${{ matrix.python-version }} (${{ matrix.arch }} ${{ matrix.os }})
+    name: build - Python ${{ matrix.python-version }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
       BUILD_MODE: debug
@@ -191,24 +196,9 @@ jobs:
           rm -rf "/c/Program Files/dotnet"
           rm -rf "/c/Program Files (x86)/Microsoft Visual Studio/2019"
 
-      - name: Install nasm dependency (Windows)
+      - name: Set up Rust toolchain
         run: |
-          choco install nasm
-          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-
-      - name: Get Rust version from rust-toolchain.toml
-        id: rust-version
-        run: |
-          version=$(awk -F\" '/version/ {print $2}' nautilus_core/rust-toolchain.toml)
-          echo "Rust toolchain version $version"
-          echo "RUST_VERSION=$version" >> $GITHUB_ENV
-        working-directory: ${{ github.workspace }}
-
-      - name: Set up Rust tool-chain (Linux, Windows) stable
-        uses: actions-rust-lang/setup-rust-toolchain@v1.8
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          components: rustfmt, clippy
+          rustup toolchain add --profile minimal stable --component clippy,rustfmt
 
       - name: Set up Python environment
         uses: actions/setup-python@v5
@@ -217,7 +207,7 @@ jobs:
 
       - name: Get Python version
         run: |
-          version=$(python -c "import sys; print('.'.join(map(str, sys.version_info[:3])))")
+          version=$(bash scripts/python-version.sh)
           echo "PYTHON_VERSION=$version" >> $GITHUB_ENV
 
       - name: Get Poetry version from poetry-version
@@ -233,14 +223,14 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
 
-      - name: Set up cached pre-commit
+      - name: Cached pre-commit
         id: cached-pre-commit
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
-          key: ${{ runner.os }}-${{ matrix.python-version }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+          key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: Set up cached cargo
+      - name: Cached cargo
         id: cached-cargo
         uses: actions/cache@v4
         with:
@@ -256,12 +246,20 @@ jobs:
       - name: Set poetry cache-dir
         run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
 
-      - name: Poetry cache
+      - name: Cached poetry
         id: cached-poetry
         uses: actions/cache@v4
         with:
           path: ${{ env.POETRY_CACHE_DIR }}
-          key: ${{ runner.os }}-${{ matrix.python-version }}-poetry-${{ hashFiles('**/poetry.lock') }}
+          key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Cached test data
+        id: cached-testdata-large
+        uses: actions/cache@v4
+        with:
+          path: tests/test_data/large
+          key: ${{ runner.os }}-large-files-${{ hashFiles('tests/test_data/large/checksums.json') }}
+          restore-keys: ${{ runner.os }}-large-files-
 
       - name: Run pre-commit
         run: |
@@ -280,13 +278,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64]
         os: [macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
     defaults:
       run:
         shell: bash
-    name: build - Python ${{ matrix.python-version }} (${{ matrix.arch }} ${{ matrix.os }})
+    name: build - Python ${{ matrix.python-version }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     env:
       BUILD_MODE: debug
@@ -302,22 +299,9 @@ jobs:
           sudo rm -rf ~/Library/Developer/Xcode/DerivedData/*
           sudo rm -rf /Library/Developer/CommandLineTools
 
-      - name: Get Rust version from rust-toolchain.toml
-        id: rust-version
+      - name: Set up Rust toolchain
         run: |
-          version=$(awk -F\" '/version/ {print $2}' nautilus_core/rust-toolchain.toml)
-          echo "Rust toolchain version $version"
-          echo "RUST_VERSION=$version" >> $GITHUB_ENV
-        working-directory: ${{ github.workspace }}
-
-      # Work around as actions-rust-lang does not seem to work on macOS yet
-      - name: Set up Rust tool-chain (macOS) stable
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          override: true
-          components: rustfmt, clippy
-          target: aarch64-apple-darwin
+          rustup toolchain add --profile minimal stable --component clippy,rustfmt
 
       - name: Set up Python environment
         uses: actions/setup-python@v5
@@ -326,7 +310,7 @@ jobs:
 
       - name: Get Python version
         run: |
-          version=$(python -c "import sys; print('.'.join(map(str, sys.version_info[:3])))")
+          version=$(bash scripts/python-version.sh)
           echo "PYTHON_VERSION=$version" >> $GITHUB_ENV
 
       - name: Get Poetry version from poetry-version
@@ -342,14 +326,14 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install --upgrade pip setuptools wheel pre-commit msgspec
 
-      - name: Set up cached pre-commit
+      - name: Cached pre-commit
         id: cached-pre-commit
         uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit
           key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: Set up cached cargo
+      - name: Cached cargo
         id: cached-cargo
         uses: actions/cache@v4
         with:
@@ -365,12 +349,20 @@ jobs:
       - name: Set poetry cache-dir
         run: echo "POETRY_CACHE_DIR=$(poetry config cache-dir)" >> $GITHUB_ENV
 
-      - name: Poetry cache
+      - name: Cached poetry
         id: cached-poetry
         uses: actions/cache@v4
         with:
           path: ${{ env.POETRY_CACHE_DIR }}
           key: ${{ runner.os }}-${{ env.PYTHON_VERSION }}-poetry-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Cached test data
+        id: cached-testdata-large
+        uses: actions/cache@v4
+        with:
+          path: tests/test_data/large
+          key: ${{ runner.os }}-large-files-${{ hashFiles('tests/test_data/large/checksums.json') }}
+          restore-keys: ${{ runner.os }}-large-files-
 
       - name: Run pre-commit
         run: |

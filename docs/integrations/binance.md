@@ -5,11 +5,29 @@ of daily trading volume, and open interest of crypto assets and crypto
 derivative products. This integration supports live market data ingest and order
 execution with Binance.
 
+## Installation
+
+To install the latest `nautilus_trader` package along with the `binance` dependencies using pip:
+
+```
+pip install -U "nautilus_trader[binance]"
+```
+
+To install from source using poetry:
+
+```
+poetry install --extras binance
+```
+
+## Examples
+
+You can find working live example scripts [here](https://github.com/nautechsystems/nautilus_trader/tree/develop/examples/live/binance/).
+
 ## Overview
 
 The following documentation assumes a trader is setting up for both live market
 data feeds, and trade execution. The full Binance integration consists of an assortment of components,
-which can be used together or separately depending on the users needs.
+which can be used together or separately depending on the user's needs.
 
 - `BinanceHttpClient`: Low-level HTTP API connectivity
 - `BinanceWebSocketClient`: Low-level WebSocket API connectivity
@@ -40,7 +58,7 @@ As per the Nautilus unification policy for symbols, the native Binance symbols a
 spot assets and futures contracts. Because NautilusTrader is capable of multi-venue + multi-account
 trading, it's necessary to explicitly clarify the difference between `BTCUSDT` as the spot and margin traded
 pair, and the `BTCUSDT` perpetual futures contract (this symbol is used for _both_ natively by Binance). Therefore, NautilusTrader appends `-PERP` to all native perpetual symbols.
-E.g. for Binance Futures, the said instruments symbol is `BTCUSDT-PERP` within the Nautilus system boundary.
+E.g. for Binance Futures, the said instrument's symbol is `BTCUSDT-PERP` within the Nautilus system boundary.
 
 ## Order types
 
@@ -201,7 +219,7 @@ config = TradingNodeConfig(
 
 ### Aggregated trades
 
-Binance provide aggregated trade data endpoints as an alternative source of trade ticks.
+Binance provides aggregated trade data endpoints as an alternative source of trade ticks.
 In comparison to the default trade endpoints, aggregated trade data endpoints can return all
 ticks between a `start_time` and `end_time`.
 
@@ -339,7 +357,7 @@ methods may eventually become first-class (not requiring custom/generic subscrip
 
 ### BinanceFuturesMarkPriceUpdate
 
-You can subscribe to `BinanceFuturesMarkPriceUpdate` (included funding rating info)
+You can subscribe to `BinanceFuturesMarkPriceUpdate` (including funding rating info)
 data streams by subscribing in the following way from your actor or strategy:
 
 ```python

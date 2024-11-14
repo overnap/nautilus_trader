@@ -156,7 +156,7 @@ class BetfairExecutionClient(LiveExecutionClient):
         self._strategy_hashes: dict[str, str] = {}
         self._set_account_id(AccountId(f"{BETFAIR_VENUE}-001"))
         AccountFactory.register_calculated_account(BETFAIR_VENUE.value)
-
+        self._is_closing = False
         self._reconnect_in_progress = False
 
     @property
@@ -168,7 +168,7 @@ class BetfairExecutionClient(LiveExecutionClient):
     async def _connect(self) -> None:
         self._log.info("Connecting to BetfairHttpClient...")
         await self._client.connect()
-        self._log.info("BetfairHttpClient login successful.", LogColor.GREEN)
+        self._log.info("BetfairHttpClient login successful", LogColor.GREEN)
 
         # Connections and start-up checks
         self._log.debug(
@@ -185,6 +185,8 @@ class BetfairExecutionClient(LiveExecutionClient):
         self.account_state_task = self.create_task(self.account_state_updates())
 
     async def _disconnect(self) -> None:
+        self._is_closing = True
+
         # Shutdown account updates
         if self.account_state_task:
             self._log.debug("Canceling task 'account_state'")
@@ -202,7 +204,7 @@ class BetfairExecutionClient(LiveExecutionClient):
     async def on_api_exception(self, error: BetfairError) -> None:
         if "INVALID_SESSION_INFORMATION" in error.args[0] or "NO_SESSION" in error.args[0]:
             if self._reconnect_in_progress:
-                self._log.info("Reconnect already in progress.")
+                self._log.info("Reconnect already in progress")
                 return
 
             # Avoid multiple reconnection attempts when multiple INVALID_SESSION_INFORMATION errors
@@ -212,7 +214,7 @@ class BetfairExecutionClient(LiveExecutionClient):
 
             try:
                 # Session is invalid, need to reconnect
-                self._log.warning("Invalid session error, reconnecting..")
+                self._log.warning("Invalid session error, reconnecting...")
                 await self._disconnect()
                 await self._connect()
                 self._log.info("Reconnected.")
@@ -231,12 +233,12 @@ class BetfairExecutionClient(LiveExecutionClient):
             self._send_account_state(account_state)
             self._log.debug("Sent account state")
 
-        while True:
+        while not self._is_closing:
             try:
                 await update_account_state()
                 await asyncio.sleep(self.request_account_state_period)
-            except Exception:
-                self._log.error(f"account_state_updates: {traceback.format_exc()}")
+            except asyncio.CancelledError:
+                self._log.debug("Canceled task 'account_state_updates'")
 
     async def request_account_state(self) -> AccountState:
         account_details = await self._client.get_account_details()
@@ -390,7 +392,7 @@ class BetfairExecutionClient(LiveExecutionClient):
         start: pd.Timestamp | None = None,
         end: pd.Timestamp | None = None,
     ) -> list[PositionStatusReport]:
-        self._log.warning("Cannot generate `PositionStatusReports`: not yet implemented")
+        self._log.info("Skipping generate_position_status_reports, not implemented for Betfair")
 
         return []
 

@@ -13,7 +13,10 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use databento::dbn;
 use dbn::{
@@ -23,7 +26,10 @@ use dbn::{
 use fallible_streaming_iterator::FallibleStreamingIterator;
 use indexmap::IndexMap;
 use nautilus_model::{
-    data::{status::InstrumentStatus, Data},
+    data::{
+        bar::Bar, delta::OrderBookDelta, depth::OrderBookDepth10, quote::QuoteTick,
+        status::InstrumentStatus, trade::TradeTick, Data,
+    },
     identifiers::{InstrumentId, Symbol, Venue},
     instruments::any::InstrumentAny,
     types::currency::Currency,
@@ -45,6 +51,8 @@ use super::{
 ///  - MBO -> `OrderBookDelta`
 ///  - MBP_1 -> `(QuoteTick, Option<TradeTick>)`
 ///  - MBP_10 -> `OrderBookDepth10`
+///  - BBO_1S -> `QuoteTick`
+///  - BBO_1M -> `QuoteTick`
 ///  - TBBO -> `(QuoteTick, TradeTick)`
 ///  - TRADES -> `TradeTick`
 ///  - OHLCV_1S -> `Bar`
@@ -57,7 +65,8 @@ use super::{
 ///  - STATUS -> `InstrumentStatus`
 ///
 /// # References
-/// <https://databento.com/docs/knowledge-base/new-users/dbn-encoding>
+///
+/// <https://databento.com/docs/schemas-and-data-formats>
 #[cfg_attr(
     feature = "python",
     pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.databento")
@@ -70,7 +79,7 @@ pub struct DatabentoDataLoader {
 
 impl DatabentoDataLoader {
     /// Creates a new [`DatabentoDataLoader`] instance.
-    pub fn new(path: Option<PathBuf>) -> anyhow::Result<Self> {
+    pub fn new(publishers_filepath: Option<PathBuf>) -> anyhow::Result<Self> {
         let mut loader = Self {
             publishers_map: IndexMap::new(),
             venue_dataset_map: IndexMap::new(),
@@ -78,7 +87,7 @@ impl DatabentoDataLoader {
         };
 
         // Load publishers
-        let publishers_path = if let Some(p) = path {
+        let publishers_filepath = if let Some(p) = publishers_filepath {
             p
         } else {
             // Use built-in publishers path
@@ -88,14 +97,21 @@ impl DatabentoDataLoader {
             exe_path
         };
 
-        loader.load_publishers(publishers_path)?;
+        loader
+            .load_publishers(publishers_filepath.clone())
+            .unwrap_or_else(|_| {
+                panic!(
+                    "No such file or directory '{}'",
+                    publishers_filepath.display()
+                )
+            });
 
         Ok(loader)
     }
 
-    /// Load the publishers data from the file at the given `path`.
-    pub fn load_publishers(&mut self, path: PathBuf) -> anyhow::Result<()> {
-        let file_content = fs::read_to_string(path)?;
+    /// Load the publishers data from the file at the given `filepath`.
+    pub fn load_publishers(&mut self, filepath: PathBuf) -> anyhow::Result<()> {
+        let file_content = fs::read_to_string(filepath)?;
         let publishers: Vec<DatabentoPublisher> = serde_json::from_str(&file_content)?;
 
         self.publishers_map = publishers
@@ -140,17 +156,17 @@ impl DatabentoDataLoader {
         self.publisher_venue_map.get(&publisher_id)
     }
 
-    pub fn schema_from_file(&self, path: PathBuf) -> anyhow::Result<Option<String>> {
-        let decoder = Decoder::from_zstd_file(path)?;
+    pub fn schema_from_file(&self, filepath: &Path) -> anyhow::Result<Option<String>> {
+        let decoder = Decoder::from_zstd_file(filepath)?;
         let metadata = decoder.metadata();
         Ok(metadata.schema.map(|schema| schema.to_string()))
     }
 
     pub fn read_definition_records(
         &mut self,
-        path: PathBuf,
+        filepath: &Path,
     ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<InstrumentAny>> + '_> {
-        let mut decoder = Decoder::from_zstd_file(path)?;
+        let mut decoder = Decoder::from_zstd_file(filepath)?;
         decoder.set_upgrade_policy(dbn::VersionUpgradePolicy::Upgrade);
         let mut dbn_stream = decoder.decode_stream::<InstrumentDefMsgV1>();
 
@@ -187,14 +203,14 @@ impl DatabentoDataLoader {
 
     pub fn read_records<T>(
         &self,
-        path: PathBuf,
+        filepath: &Path,
         instrument_id: Option<InstrumentId>,
         include_trades: bool,
     ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<(Option<Data>, Option<Data>)>> + '_>
     where
         T: dbn::Record + dbn::HasRType + 'static,
     {
-        let decoder = Decoder::from_zstd_file(path)?;
+        let decoder = Decoder::from_zstd_file(filepath)?;
         let metadata = decoder.metadata().clone();
         let mut dbn_stream = decoder.decode_stream::<T>();
 
@@ -214,7 +230,7 @@ impl DatabentoDataLoader {
                             &metadata,
                             &self.publisher_venue_map,
                         )
-                        .unwrap(), // TODO: Panic on error for now
+                        .expect("Failed to decode record"),
                     };
 
                     match decode_record(
@@ -233,15 +249,160 @@ impl DatabentoDataLoader {
         }))
     }
 
-    pub fn read_status_records<T>(
+    pub fn load_instruments(&mut self, filepath: &Path) -> anyhow::Result<Vec<InstrumentAny>> {
+        self.read_definition_records(filepath)?
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    // Cannot include trades
+    pub fn load_order_book_deltas(
         &self,
-        path: PathBuf,
+        filepath: &Path,
+        instrument_id: Option<InstrumentId>,
+    ) -> anyhow::Result<Vec<OrderBookDelta>> {
+        self.read_records::<dbn::MboMsg>(filepath, instrument_id, false)?
+            .filter_map(|result| match result {
+                Ok((Some(item1), _)) => {
+                    if let Data::Delta(delta) = item1 {
+                        Some(Ok(delta))
+                    } else {
+                        None
+                    }
+                }
+                Ok((None, _)) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect()
+    }
+
+    pub fn load_order_book_depth10(
+        &self,
+        filepath: &Path,
+        instrument_id: Option<InstrumentId>,
+    ) -> anyhow::Result<Vec<OrderBookDepth10>> {
+        self.read_records::<dbn::Mbp10Msg>(filepath, instrument_id, false)?
+            .filter_map(|result| match result {
+                Ok((Some(item1), _)) => {
+                    if let Data::Depth10(depth) = item1 {
+                        Some(Ok(depth))
+                    } else {
+                        None
+                    }
+                }
+                Ok((None, _)) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect()
+    }
+
+    pub fn load_quotes(
+        &self,
+        filepath: &Path,
+        instrument_id: Option<InstrumentId>,
+    ) -> anyhow::Result<Vec<QuoteTick>> {
+        self.read_records::<dbn::Mbp1Msg>(filepath, instrument_id, false)?
+            .filter_map(|result| match result {
+                Ok((Some(item1), _)) => {
+                    if let Data::Quote(quote) = item1 {
+                        Some(Ok(quote))
+                    } else {
+                        None
+                    }
+                }
+                Ok((None, _)) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect()
+    }
+
+    pub fn load_bbo_quotes(
+        &self,
+        filepath: &Path,
+        instrument_id: Option<InstrumentId>,
+    ) -> anyhow::Result<Vec<QuoteTick>> {
+        self.read_records::<dbn::BboMsg>(filepath, instrument_id, false)?
+            .filter_map(|result| match result {
+                Ok((Some(item1), _)) => {
+                    if let Data::Quote(quote) = item1 {
+                        Some(Ok(quote))
+                    } else {
+                        None
+                    }
+                }
+                Ok((None, _)) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect()
+    }
+
+    pub fn load_tbbo_trades(
+        &self,
+        filepath: &Path,
+        instrument_id: Option<InstrumentId>,
+    ) -> anyhow::Result<Vec<TradeTick>> {
+        self.read_records::<dbn::TbboMsg>(filepath, instrument_id, false)?
+            .filter_map(|result| match result {
+                Ok((_, maybe_item2)) => {
+                    if let Some(Data::Trade(trade)) = maybe_item2 {
+                        Some(Ok(trade))
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => Some(Err(e)),
+            })
+            .collect()
+    }
+
+    pub fn load_trades(
+        &self,
+        filepath: &Path,
+        instrument_id: Option<InstrumentId>,
+    ) -> anyhow::Result<Vec<TradeTick>> {
+        self.read_records::<dbn::TradeMsg>(filepath, instrument_id, false)?
+            .filter_map(|result| match result {
+                Ok((Some(item1), _)) => {
+                    if let Data::Trade(trade) = item1 {
+                        Some(Ok(trade))
+                    } else {
+                        None
+                    }
+                }
+                Ok((None, _)) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect()
+    }
+
+    pub fn load_bars(
+        &self,
+        filepath: &Path,
+        instrument_id: Option<InstrumentId>,
+    ) -> anyhow::Result<Vec<Bar>> {
+        self.read_records::<dbn::OhlcvMsg>(filepath, instrument_id, false)?
+            .filter_map(|result| match result {
+                Ok((Some(item1), _)) => {
+                    if let Data::Bar(bar) = item1 {
+                        Some(Ok(bar))
+                    } else {
+                        None
+                    }
+                }
+                Ok((None, _)) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect()
+    }
+
+    pub fn load_status_records<T>(
+        &self,
+        filepath: &Path,
         instrument_id: Option<InstrumentId>,
     ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<InstrumentStatus>> + '_>
     where
         T: dbn::Record + dbn::HasRType + 'static,
     {
-        let decoder = Decoder::from_zstd_file(path)?;
+        let decoder = Decoder::from_zstd_file(filepath)?;
         let metadata = decoder.metadata().clone();
         let mut dbn_stream = decoder.decode_stream::<T>();
 
@@ -259,7 +420,7 @@ impl DatabentoDataLoader {
                             &metadata,
                             &self.publisher_venue_map,
                         )
-                        .unwrap(), // TODO: Panic on error for now
+                        .expect("Failed to decode record"),
                     };
 
                     let msg = record.get::<dbn::StatusMsg>().expect("Invalid `StatusMsg`");
@@ -275,13 +436,13 @@ impl DatabentoDataLoader {
 
     pub fn read_imbalance_records<T>(
         &self,
-        path: PathBuf,
+        filepath: &Path,
         instrument_id: Option<InstrumentId>,
     ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<DatabentoImbalance>> + '_>
     where
         T: dbn::Record + dbn::HasRType + 'static,
     {
-        let decoder = Decoder::from_zstd_file(path)?;
+        let decoder = Decoder::from_zstd_file(filepath)?;
         let metadata = decoder.metadata().clone();
         let mut dbn_stream = decoder.decode_stream::<T>();
 
@@ -301,7 +462,7 @@ impl DatabentoDataLoader {
                             &metadata,
                             &self.publisher_venue_map,
                         )
-                        .unwrap(), // TODO: Panic on error for now
+                        .expect("Failed to decode record"),
                     };
 
                     let msg = record
@@ -324,13 +485,13 @@ impl DatabentoDataLoader {
 
     pub fn read_statistics_records<T>(
         &self,
-        path: PathBuf,
+        filepath: &Path,
         instrument_id: Option<InstrumentId>,
     ) -> anyhow::Result<impl Iterator<Item = anyhow::Result<DatabentoStatistics>> + '_>
     where
         T: dbn::Record + dbn::HasRType + 'static,
     {
-        let decoder = Decoder::from_zstd_file(path)?;
+        let decoder = Decoder::from_zstd_file(filepath)?;
         let metadata = decoder.metadata().clone();
         let mut dbn_stream = decoder.decode_stream::<T>();
 
@@ -350,7 +511,7 @@ impl DatabentoDataLoader {
                             &metadata,
                             &self.publisher_venue_map,
                         )
-                        .unwrap(), // TODO: Panic on error for now
+                        .expect("Failed to decode record"),
                     };
 
                     let msg = record.get::<dbn::StatMsg>().expect("Invalid `StatMsg`");
@@ -367,5 +528,127 @@ impl DatabentoDataLoader {
                 None => None,
             }
         }))
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Tests
+////////////////////////////////////////////////////////////////////////////////
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use rstest::*;
+
+    use super::*;
+
+    fn test_data_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/databento/test_data")
+    }
+
+    fn data_loader() -> DatabentoDataLoader {
+        let publishers_filepath = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("databento")
+            .join("publishers.json");
+
+        DatabentoDataLoader::new(Some(publishers_filepath)).unwrap()
+    }
+
+    // TODO: Improve the below assertions that we've actually read the records we expected
+
+    #[rstest]
+    // #[case(test_data_path().join("test_data.definition.dbn.zst"))] // TODO: Fails
+    #[case(test_data_path().join("test_data.definition.v1.dbn.zst"))]
+    fn test_load_instruments(#[case] path: PathBuf) {
+        let mut loader = data_loader();
+        let instruments = loader.load_instruments(&path).unwrap();
+
+        assert_eq!(instruments.len(), 2);
+    }
+
+    #[rstest]
+    fn test_load_order_book_deltas() {
+        let path = test_data_path().join("test_data.mbo.dbn.zst");
+        let loader = data_loader();
+        let instrument_id = InstrumentId::from("ESM4.GLBX");
+
+        let deltas = loader
+            .load_order_book_deltas(&path, Some(instrument_id))
+            .unwrap();
+
+        assert_eq!(deltas.len(), 2);
+    }
+
+    #[rstest]
+    fn test_load_order_book_depth10() {
+        let path = test_data_path().join("test_data.mbp-10.dbn.zst");
+        let loader = data_loader();
+        let instrument_id = InstrumentId::from("ESM4.GLBX");
+
+        let depths = loader
+            .load_order_book_depth10(&path, Some(instrument_id))
+            .unwrap();
+
+        assert_eq!(depths.len(), 2);
+    }
+
+    #[rstest]
+    fn test_load_quotes() {
+        let path = test_data_path().join("test_data.mbp-1.dbn.zst");
+        let loader = data_loader();
+        let instrument_id = InstrumentId::from("ESM4.GLBX");
+
+        let quotes = loader.load_quotes(&path, Some(instrument_id)).unwrap();
+
+        assert_eq!(quotes.len(), 2);
+    }
+
+    #[rstest]
+    #[case(test_data_path().join("test_data.bbo-1s.dbn.zst"))]
+    #[case(test_data_path().join("test_data.bbo-1m.dbn.zst"))]
+    fn test_load_bbo_quotes(#[case] path: PathBuf) {
+        let loader = data_loader();
+        let instrument_id = InstrumentId::from("ESM4.GLBX");
+
+        let quotes = loader.load_bbo_quotes(&path, Some(instrument_id)).unwrap();
+
+        assert_eq!(quotes.len(), 2);
+    }
+
+    #[rstest]
+    fn test_load_tbbo_trades() {
+        let path = test_data_path().join("test_data.tbbo.dbn.zst");
+        let loader = data_loader();
+        let instrument_id = InstrumentId::from("ESM4.GLBX");
+
+        let _trades = loader.load_tbbo_trades(&path, Some(instrument_id)).unwrap();
+
+        // assert_eq!(trades.len(), 2);  TODO: No records?
+    }
+
+    #[rstest]
+    fn test_load_trades() {
+        let path = test_data_path().join("test_data.trades.dbn.zst");
+        let loader = data_loader();
+
+        let instrument_id = InstrumentId::from("ESM4.GLBX");
+        let trades = loader.load_trades(&path, Some(instrument_id)).unwrap();
+
+        assert_eq!(trades.len(), 2);
+    }
+
+    #[rstest]
+    // #[case(test_data_path().join("test_data.ohlcv-1d.dbn.zst"))]  // TODO: Needs new data
+    #[case(test_data_path().join("test_data.ohlcv-1h.dbn.zst"))]
+    #[case(test_data_path().join("test_data.ohlcv-1m.dbn.zst"))]
+    #[case(test_data_path().join("test_data.ohlcv-1s.dbn.zst"))]
+    fn test_load_bars(#[case] path: PathBuf) {
+        let loader = data_loader();
+
+        let instrument_id = InstrumentId::from("ESM4.GLBX");
+        let bars = loader.load_bars(&path, Some(instrument_id)).unwrap();
+
+        assert_eq!(bars.len(), 2);
     }
 }

@@ -15,8 +15,6 @@
 
 //! Identifiers for the trading domain model.
 
-use std::str::FromStr;
-
 use nautilus_core::python::to_pyvalue_err;
 use pyo3::{
     prelude::*,
@@ -27,6 +25,7 @@ use pyo3::{
 use crate::identifier_for_python;
 
 pub mod instrument_id;
+pub mod symbol;
 pub mod trade_id;
 
 identifier_for_python!(crate::identifiers::AccountId);
@@ -37,7 +36,6 @@ identifier_for_python!(crate::identifiers::ExecAlgorithmId);
 identifier_for_python!(crate::identifiers::OrderListId);
 identifier_for_python!(crate::identifiers::PositionId);
 identifier_for_python!(crate::identifiers::StrategyId);
-identifier_for_python!(crate::identifiers::Symbol);
 identifier_for_python!(crate::identifiers::TraderId);
 identifier_for_python!(crate::identifiers::Venue);
 identifier_for_python!(crate::identifiers::VenueOrderId);

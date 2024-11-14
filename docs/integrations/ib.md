@@ -12,21 +12,25 @@ The standalone TWS and IB Gateway applications require manually inputting userna
 
 ## Installation
 
-To install the latest nautilus-trader package along with the `ibapi` and optional `docker` dependencies using pip, execute:
+To install the latest `nautilus_trader` package along with the `ibapi` and optional `docker` dependencies using pip:
 
 ```
 pip install -U "nautilus_trader[ib,docker]"
 ```
 
-For installation via poetry, use:
+To install from source using poetry:
 
 ```
-poetry add "nautilus_trader[ib,docker]"
+poetry install --extras ib --extras docker
 ```
 
 :::note
 Because IB does not provide wheels for `ibapi`, NautilusTrader [repackages](https://pypi.org/project/nautilus-ibapi/) it for release on PyPI.
 :::
+
+## Examples
+
+You can find working live example scripts [here](https://github.com/nautechsystems/nautilus_trader/tree/develop/examples/live/interactive_brokers/).
 
 ## Getting Started
 
@@ -64,7 +68,7 @@ print(gateway.is_logged_in(gateway.container))
 print(gateway.container.logs())
 ```
 
-**Note:** To supply credentials to the Interactive Brokers Gateway, either pass the `username` and `password` to the `DockerizedIBGatewayConfig`, or set the following environment variables:
+**Note**: To supply credentials to the Interactive Brokers Gateway, either pass the `username` and `password` to the `DockerizedIBGatewayConfig`, or set the following environment variables:
 - `TWS_USERNAME`
 - `TWS_PASSWORD`
 
@@ -145,7 +149,7 @@ for_loading_instrument_range = IBContract(
 )
 ```
 
-> **Note:** The `secType` and `symbol` should be specified for the Underlying Contract.
+> **Note**: The `secType` and `symbol` should be specified for the Underlying Contract.
 
 Some more examples of building IBContracts:
 ```python

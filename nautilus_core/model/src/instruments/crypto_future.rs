@@ -30,6 +30,7 @@ use crate::{
     types::{currency::Currency, money::Money, price::Price, quantity::Quantity},
 };
 
+/// Represents a deliverable futures contract instrument, with crypto assets as underlying and for settlement.
 #[repr(C)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(
@@ -291,8 +292,7 @@ impl Instrument for CryptoFuture {
     }
 
     fn multiplier(&self) -> Quantity {
-        // SAFETY: Unwrap safe as using known values
-        Quantity::new(1.0, 0)
+        Quantity::from(1)
     }
 
     fn lot_size(&self) -> Option<Quantity> {

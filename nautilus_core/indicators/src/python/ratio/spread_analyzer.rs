@@ -13,11 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use nautilus_core::python::to_pyvalue_err;
-use nautilus_model::{
-    data::quote::QuoteTick, enums::PriceType, identifiers::InstrumentId,
-    python::identifiers::instrument_id,
-};
+use nautilus_model::{data::quote::QuoteTick, identifiers::InstrumentId};
 use pyo3::prelude::*;
 
 use crate::{indicator::Indicator, ratio::spread_analyzer::SpreadAnalyzer};
@@ -41,25 +37,25 @@ impl SpreadAnalyzer {
 
     #[getter]
     #[pyo3(name = "capacity")]
-    fn py_capacity(&self) -> usize {
+    const fn py_capacity(&self) -> usize {
         self.capacity
     }
 
     #[getter]
     #[pyo3(name = "current")]
-    fn py_current(&self) -> f64 {
+    const fn py_current(&self) -> f64 {
         self.current
     }
 
     #[getter]
     #[pyo3(name = "average")]
-    fn py_average(&self) -> f64 {
+    const fn py_average(&self) -> f64 {
         self.average
     }
 
     #[getter]
     #[pyo3(name = "initialized")]
-    fn py_initialized(&self) -> bool {
+    const fn py_initialized(&self) -> bool {
         self.initialized
     }
 
@@ -70,7 +66,7 @@ impl SpreadAnalyzer {
 
     #[pyo3(name = "handle_quote_tick")]
     fn py_handle_quote_tick(&mut self, quote: &QuoteTick) {
-        self.handle_quote_tick(quote);
+        self.handle_quote(quote);
     }
 
     #[pyo3(name = "reset")]

@@ -13,49 +13,21 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 """
-The top-level package contains all sub-packages needed for NautilusTrader.
+NautilusTrader (http://nautilustrader.io) is an open-source, high-performance, production-grade
+algorithmic trading platform, providing quantitative traders with the ability to backtest
+portfolios of automated trading strategies on historical data with an event-driven engine,
+and also deploy those same strategies live, with no code changes.
 """
 
-from importlib import resources
 from pathlib import Path
+from typing import Final
 
-import toml
-
-
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-
-try:
-    __version__ = toml.load(PACKAGE_ROOT / "pyproject.toml")["tool"]["poetry"]["version"]
-except FileNotFoundError:  # pragma: no cover
-    __version__ = "latest"
-
-USER_AGENT = f"NautilusTrader/{__version__}"
+from nautilus_trader.core import nautilus_pyo3
 
 
-def clean_version_string(version: str) -> str:
-    """
-    Clean the version string by removing any non-digit leading characters.
-    """
-    # Check if the version starts with any of the operators and remove them
-    specifiers = ["==", ">=", "<=", "^", ">", "<"]
-    for s in specifiers:
-        version = version.replace(s, "")
+__version__ = nautilus_pyo3.NAUTILUS_VERSION
 
-    # Only allow digits, dots, a, b, rc characters
-    return "".join(c for c in version if c.isdigit() or c in ".abrc")
+PACKAGE_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+TEST_DATA_DIR: Final[Path] = PACKAGE_ROOT / "tests" / "test_data"
 
-
-def get_package_version_from_toml(
-    package_name: str,
-    strip_specifiers: bool = False,
-) -> str:
-    """
-    Return the package version specified in the given `toml_file` for the given
-    `package_name`.
-    """
-    with resources.path("your_package_name", "pyproject.toml") as toml_path:
-        data = toml.load(toml_path)
-        version = data["tool"]["poetry"]["dependencies"][package_name]["version"]
-        if strip_specifiers:
-            version = clean_version_string(version)
-        return version
+USER_AGENT: Final[str] = nautilus_pyo3.USER_AGENT

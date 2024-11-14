@@ -24,9 +24,7 @@
 //! depending on the intended use case, i.e. whether to provide Python bindings
 //! for the main `nautilus_trader` Python package, or as part of a Rust only build.
 //!
-//! - `python`: Enables Python bindings from `pyo3`
-
-#![allow(warnings)] // TODO: non-local `impl` definition, temporary allow until pyo3 upgrade
+//! - `python`: Enables Python bindings from `pyo3`.
 
 pub mod http;
 #[allow(dead_code)]

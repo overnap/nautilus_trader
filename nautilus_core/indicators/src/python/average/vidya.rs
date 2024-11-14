@@ -13,7 +13,6 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use nautilus_core::python::to_pyvalue_err;
 use nautilus_model::{
     data::{bar::Bar, quote::QuoteTick, trade::TradeTick},
     enums::PriceType,
@@ -28,6 +27,8 @@ use crate::{
 #[pymethods]
 impl VariableIndexDynamicAverage {
     #[new]
+    #[pyo3(signature = (period, price_type=None, cmo_ma_type=None))]
+    #[must_use]
     pub fn py_new(
         period: usize,
         price_type: Option<PriceType>,
@@ -51,7 +52,7 @@ impl VariableIndexDynamicAverage {
 
     #[getter]
     #[pyo3(name = "period")]
-    fn py_period(&self) -> usize {
+    const fn py_period(&self) -> usize {
         self.period
     }
 
@@ -63,7 +64,7 @@ impl VariableIndexDynamicAverage {
 
     #[getter]
     #[pyo3(name = "alpha")]
-    fn py_alpha(&self) -> f64 {
+    const fn py_alpha(&self) -> f64 {
         self.alpha
     }
 
@@ -75,30 +76,30 @@ impl VariableIndexDynamicAverage {
 
     #[getter]
     #[pyo3(name = "initialized")]
-    fn py_initialized(&self) -> bool {
+    const fn py_initialized(&self) -> bool {
         self.initialized
     }
 
     #[getter]
     #[pyo3(name = "cmo_pct")]
-    fn py_cmo_pct(&self) -> f64 {
+    const fn py_cmo_pct(&self) -> f64 {
         self.cmo_pct
     }
 
     #[getter]
     #[pyo3(name = "value")]
-    fn py_value(&self) -> f64 {
+    const fn py_value(&self) -> f64 {
         self.value
     }
 
     #[pyo3(name = "handle_quote_tick")]
-    fn py_handle_quote_tick(&mut self, tick: &QuoteTick) {
-        self.py_update_raw(tick.extract_price(self.price_type).into());
+    fn py_handle_quote_tick(&mut self, quote: &QuoteTick) {
+        self.py_update_raw(quote.extract_price(self.price_type).into());
     }
 
     #[pyo3(name = "handle_trade_tick")]
-    fn py_handle_trade_tick(&mut self, tick: &TradeTick) {
-        self.update_raw((&tick.price).into());
+    fn py_handle_trade_tick(&mut self, trade: &TradeTick) {
+        self.update_raw((&trade.price).into());
     }
 
     #[pyo3(name = "handle_bar")]

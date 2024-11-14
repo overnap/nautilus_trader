@@ -26,17 +26,17 @@ mod serial_tests {
     use std::time::Duration;
 
     use nautilus_common::{cache::database::CacheDatabaseAdapter, testing::wait_until};
-    use nautilus_infrastructure::sql::cache_database::get_pg_cache_database;
+    use nautilus_infrastructure::sql::cache::get_pg_cache_database;
     use nautilus_model::{
         accounts::any::AccountAny,
-        enums::{CurrencyType, OrderSide},
+        enums::{CurrencyType, OrderSide, OrderType},
         identifiers::ClientOrderId,
         instruments::{
             any::InstrumentAny,
             stubs::{crypto_perpetual_ethusdt, currency_pair_ethusdt},
             Instrument,
         },
-        orders::stubs::TestOrderStubs,
+        orders::builder::OrderTestBuilder,
         types::{currency::Currency, quantity::Quantity},
     };
 
@@ -45,7 +45,8 @@ mod serial_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_cache_instruments() {
         let mut database = get_pg_cache_database().await.unwrap();
-        let mut cache = get_cache(Some(Box::new(database.clone())));
+        let mut cache = get_cache(Some(Box::new(get_pg_cache_database().await.unwrap())));
+
         let eth = Currency::new("ETH", 2, 0, "ETH", CurrencyType::Crypto);
         let usdt = Currency::new("USDT", 2, 0, "USDT", CurrencyType::Crypto);
         let crypto_perpetual = InstrumentAny::CryptoPerpetual(crypto_perpetual_ethusdt());
@@ -70,20 +71,23 @@ mod serial_tests {
         assert_eq!(cached_instrument_ids, vec![&crypto_perpetual.id()]);
         let target_instrument = cache.instrument(&crypto_perpetual.id());
         assert_eq!(target_instrument.unwrap(), &crypto_perpetual);
+
+        database.flush().unwrap();
+        database.close().unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_cache_orders() {
         let mut database = get_pg_cache_database().await.unwrap();
-        let mut cache = get_cache(Some(Box::new(database.clone())));
+        let mut cache = get_cache(Some(Box::new(get_pg_cache_database().await.unwrap())));
+
         let instrument = currency_pair_ethusdt();
-        let market_order = TestOrderStubs::market_order(
-            instrument.id(),
-            OrderSide::Buy,
-            Quantity::from("1.0"),
-            Some(ClientOrderId::new("O-19700101-0000-001-001-1")),
-            None,
-        );
+        let market_order = OrderTestBuilder::new(OrderType::Market)
+            .instrument_id(instrument.id())
+            .side(OrderSide::Buy)
+            .quantity(Quantity::from("1.0"))
+            .client_order_id(ClientOrderId::new("O-19700101-0000-001-001-1"))
+            .build();
         // add foreign key dependencies: instrument and currencies
         database
             .add_currency(&instrument.base_currency().unwrap())
@@ -111,12 +115,16 @@ mod serial_tests {
         assert_eq!(cached_order_ids.len(), 1);
         let target_order = cache.order(&market_order.client_order_id());
         assert_eq!(target_order.unwrap(), &market_order);
+
+        database.flush().unwrap();
+        database.close().unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_cache_accounts() {
         let mut database = get_pg_cache_database().await.unwrap();
-        let mut cache = get_cache(Some(Box::new(database.clone())));
+        let mut cache = get_cache(Some(Box::new(get_pg_cache_database().await.unwrap())));
+
         let account = AccountAny::default();
         let last_event = account.last_event().unwrap();
         if last_event.base_currency.is_some() {
@@ -141,5 +149,8 @@ mod serial_tests {
         assert_eq!(cached_accounts.len(), 1);
         let target_account_for_venue = cache.account_for_venue(&account.id().get_issuer());
         assert_eq!(*target_account_for_venue.unwrap(), account);
+
+        database.flush().unwrap();
+        database.close().unwrap();
     }
 }

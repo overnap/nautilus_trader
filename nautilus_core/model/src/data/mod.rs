@@ -19,6 +19,7 @@ pub mod bar;
 pub mod delta;
 pub mod deltas;
 pub mod depth;
+pub mod greeks;
 pub mod order;
 pub mod quote;
 pub mod status;
@@ -36,6 +37,8 @@ use std::{
 use bar::BarType;
 use indexmap::IndexMap;
 use nautilus_core::nanos::UnixNanos;
+use serde::{Deserialize, Serialize};
+use serde_json::to_string;
 
 use self::{
     bar::Bar, delta::OrderBookDelta, deltas::OrderBookDeltas_API, depth::OrderBookDepth10,
@@ -145,7 +148,11 @@ pub extern "C" fn data_clone(data: &Data) -> Data {
 }
 
 /// Represents a data type including metadata.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.model")
+)]
 pub struct DataType {
     type_name: String,
     metadata: Option<IndexMap<String, String>>,
@@ -188,6 +195,14 @@ impl DataType {
     /// Returns the metadata for the data type.
     pub fn metadata(&self) -> Option<&IndexMap<String, String>> {
         self.metadata.as_ref()
+    }
+
+    /// Returns a string representation of the metadata.
+    pub fn metadata_str(&self) -> String {
+        self.metadata
+            .as_ref()
+            .map(|metadata| to_string(metadata).unwrap_or_default())
+            .unwrap_or_else(|| "null".to_string())
     }
 
     /// Returns the messaging topic for the data type.

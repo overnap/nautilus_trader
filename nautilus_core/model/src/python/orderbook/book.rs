@@ -23,12 +23,7 @@ use crate::{
     },
     enums::{BookType, OrderSide},
     identifiers::InstrumentId,
-    orderbook::{
-        aggregation::{update_book_with_quote_tick, update_book_with_trade_tick},
-        analysis::book_check_integrity,
-        book::OrderBook,
-        level::Level,
-    },
+    orderbook::{analysis::book_check_integrity, book::OrderBook, level::Level},
     types::{price::Price, quantity::Quantity},
 };
 
@@ -198,6 +193,15 @@ impl OrderBook {
         self.get_avg_px_for_quantity(qty, order_side)
     }
 
+    #[pyo3(name = "get_avg_px_qty_for_exposure")]
+    fn py_get_avg_px_qty_for_exposure(
+        &self,
+        qty: Quantity,
+        order_side: OrderSide,
+    ) -> (f64, f64, f64) {
+        self.get_avg_px_qty_for_exposure(qty, order_side)
+    }
+
     #[pyo3(name = "get_quantity_for_price")]
     fn py_get_quantity_for_price(&self, price: Price, order_side: OrderSide) -> f64 {
         self.get_quantity_for_price(price, order_side)
@@ -217,11 +221,11 @@ impl OrderBook {
 #[pyfunction()]
 #[pyo3(name = "update_book_with_quote_tick")]
 pub fn py_update_book_with_quote_tick(book: &mut OrderBook, quote: &QuoteTick) -> PyResult<()> {
-    update_book_with_quote_tick(book, quote).map_err(to_pyvalue_err)
+    book.update_quote_tick(quote).map_err(to_pyvalue_err)
 }
 
 #[pyfunction()]
 #[pyo3(name = "update_book_with_trade_tick")]
 pub fn py_update_book_with_trade_tick(book: &mut OrderBook, trade: &TradeTick) -> PyResult<()> {
-    update_book_with_trade_tick(book, trade).map_err(to_pyvalue_err)
+    book.update_trade_tick(trade).map_err(to_pyvalue_err)
 }

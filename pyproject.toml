@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nautilus_trader"
-version = "1.201.0"
+version = "1.205.0"
 description = "A high-performance algorithmic trading platform and event-driven backtester"
 authors = ["Nautech Systems <info@nautechsystems.io>"]
 license = "LGPL-3.0-or-later"
@@ -38,10 +38,9 @@ include = [
 [build-system]
 requires = [
     "setuptools",
-    "poetry-core>=1.9.0",
-    "numpy>=2.0.1",
+    "poetry-core>=1.9.1",
+    "numpy>=1.26.4",
     "Cython==3.0.11",
-    "toml>=0.10.2",
 ]
 build-backend = "poetry.core.masonry.api"
 
@@ -50,19 +49,18 @@ script = "build.py"
 generate-setup-file = false
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.11,<3.13"
 cython = "==3.0.11"  # Build dependency (pinned for stability)
-numpy = ">=2.0.1"  # Build dependency
+numpy = ">=1.26.4"  # Build dependency
 setuptools = ">=73" # Build dependency
-toml = "^0.10.2"  # Build dependency
 click = "^8.1.7"
 fsspec = "==2023.6.0"  # Pinned due breaking changes
 msgspec = "^0.18.6"
-pandas = "^2.2.2"
-pyarrow = ">=17.0.0"
-pytz = ">=2024.1.0"
-tqdm = "^4.66.5"
-uvloop = {version = "^0.20.0", markers = "sys_platform != 'win32'"}
+pandas = "^2.2.3"
+pyarrow = ">=18.0.0"
+pytz = ">=2024.2.0"
+tqdm = "^4.66.6"
+uvloop = {version = "^0.21.0", markers = "sys_platform != 'win32'"}
 
 async-timeout = {version = "^4.0.3", optional = true}
 betfair_parser = {version = "==0.13.0", optional = true}  # Pinned for stability
@@ -70,29 +68,31 @@ defusedxml = {version = "^0.7.1", optional = true}
 docker = {version = "^7.1.0", optional = true}
 nautilus_ibapi = {version = "==10.19.4", optional = true}  # Pinned for stability
 v4-proto = {version = "==5.2.2", optional = true}  # Pinned due breaking protobuf issue
+grpcio = {version = "==1.65.4", optional = true}  # Pinned due breaking protobuf issue
+protobuf = {version = "==5.27.1", optional = true}  # Pinned due breaking protobuf issue
 bech32 = {version = "^1.2.0", optional = true}
 ecdsa = {version = "^0.19.0", optional = true}
 bip-utils = {version = "^2.9.3", optional = true}
 pycryptodome = {version = "^3.20.0", optional = true}
-pyjwt = "^2.9.0"
-tweepy = "^4.14.0"
+py-clob-client = {version = "^0.18.0", optional = true}
 
 [tool.poetry.extras]
 betfair = ["betfair_parser"]
 docker = ["docker"]
-dydx = ["v4-proto", "bech32", "ecdsa", "bip-utils", "pycryptodome"]
+dydx = ["v4-proto", "bech32", "ecdsa", "bip-utils", "pycryptodome", "grpcio", "protobuf"]
 ib = ["nautilus_ibapi", "async-timeout", "defusedxml"]
+polymarket = ["py-clob-client"]
 
 [tool.poetry.group.dev]
 optional = true
 
 [tool.poetry.group.dev.dependencies]
-black = "^24.8.0"
+black = "^24.10.0"
 docformatter = "^1.7.5"
-mypy = "^1.11.2"
+mypy = "^1.13.0"
 pandas-stubs = "^2.2.2"
-pre-commit = "^3.8.0"
-ruff = "^0.6.4"
+pre-commit = "^4.0.1"
+ruff = "^0.7.2"
 types-pytz = "^2024.1"
 types-requests = "^2.32"
 types-toml = "^0.10.2"
@@ -101,14 +101,14 @@ types-toml = "^0.10.2"
 optional = true
 
 [tool.poetry.group.test.dependencies]
-coverage = "^7.6.1"
+coverage = "^7.6.4"
 pytest = "^7.4.4"
 pytest-aiohttp = "^1.0.5"
 pytest-asyncio = "==0.21.1"  # Pinned due Cython: cannot set '__pytest_asyncio_scoped_event_loop' attribute of immutable type
 pytest-benchmark = "^4.0.0"
 pytest-cov = "^4.1.0"
 pytest-mock = "^3.14.0"
-pytest-xdist = { version = "^3.6.1", extras = ["psutil"] }
+pytest-xdist = {version = "^3.6.1", extras = ["psutil"]}
 
 [tool.poetry.group.docs]
 optional = true
@@ -121,7 +121,7 @@ sphinx_comments = "^0.0.3"
 sphinx_markdown_builder = "^0.6.6"
 
 [tool.isort]  # Used by legacy isort for Cython modules
-py_version = "310"
+py_version = "311"
 skip_glob = ["**/core/rust/*"]
 combine_as_imports = true
 line_length = 100
@@ -134,7 +134,7 @@ use_parentheses = true
 filter_files = true
 
 [tool.black]
-target_version = ["py310", "py311", "py312"]
+target_version = ["py311", "py312"]
 line_length = 100
 
 [tool.docformatter]
@@ -146,7 +146,7 @@ recursive = true
 in-place = true
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 150  # Reduce to 100
 
 exclude = [
@@ -237,7 +237,7 @@ max-complexity = 10
 "test_perf_logger.py" = ["S311"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 disallow_incomplete_defs = true
 explicit_package_bases = true
 ignore_missing_imports = true

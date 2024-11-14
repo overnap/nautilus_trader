@@ -20,22 +20,22 @@ indexmap = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
 pyo3 = { workspace = true, optional = true }
-pyo3-asyncio-0-21 = { workspace = true, optional = true }
-rstest = { workspace = true , optional = true}
+pyo3-async-runtimes = { workspace = true, optional = true }
+rstest = { workspace = true , optional = true }
 rust_decimal = { workspace = true }
 rust_decimal_macros = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 strum = { workspace = true }
-sysinfo = "0.31.4"
 tokio = { workspace = true }
-# Disable default feature "tracing-log" since it interferes with custom logging
-tracing-subscriber = { version = "0.3.18", default-features = false, features = ["smallvec", "fmt", "ansi", "std", "env-filter"] }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 ustr = { workspace = true }
 uuid = { workspace = true }
+sysinfo = "0.32.0"
 
 [dev-dependencies]
+proptest = { workspace = true }
 tempfile = { workspace = true }
 
 [build-dependencies]
@@ -49,4 +49,4 @@ extension-module = [
     "nautilus-model/extension-module",
 ]
 ffi = ["cbindgen", "nautilus-core/ffi", "nautilus-model/ffi"]
-python = ["pyo3", "pyo3-asyncio-0-21", "nautilus-core/python", "nautilus-model/python"]
+python = ["pyo3", "pyo3-async-runtimes", "nautilus-core/python", "nautilus-model/python"]

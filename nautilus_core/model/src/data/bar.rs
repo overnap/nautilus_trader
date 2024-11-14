@@ -22,7 +22,7 @@ use std::{
     str::FromStr,
 };
 
-use chrono::{DateTime, Datelike, TimeDelta, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, TimeDelta, Timelike, Utc};
 use derive_builder::Builder;
 use indexmap::IndexMap;
 use nautilus_core::{correctness::FAILED, nanos::UnixNanos, serialization::Serializable};
@@ -133,6 +133,20 @@ impl BarSpecification {
             step,
             aggregation,
             price_type,
+        }
+    }
+
+    pub fn timedelta(&self) -> TimeDelta {
+        match self.aggregation {
+            BarAggregation::Millisecond => Duration::milliseconds(self.step as i64),
+            BarAggregation::Second => Duration::seconds(self.step as i64),
+            BarAggregation::Minute => Duration::minutes(self.step as i64),
+            BarAggregation::Hour => Duration::hours(self.step as i64),
+            BarAggregation::Day => Duration::days(self.step as i64),
+            _ => panic!(
+                "Timedelta not supported for aggregation type: {:?}",
+                self.aggregation
+            ),
         }
     }
 }
@@ -505,8 +519,8 @@ impl Bar {
         volume: Quantity,
         ts_event: UnixNanos,
         ts_init: UnixNanos,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             bar_type,
             open,
             high,
@@ -515,7 +529,11 @@ impl Bar {
             volume,
             ts_event,
             ts_init,
-        })
+        }
+    }
+
+    pub fn instrument_id(&self) -> InstrumentId {
+        self.bar_type.instrument_id()
     }
 
     /// Returns the metadata for the type, for use with serialization formats.

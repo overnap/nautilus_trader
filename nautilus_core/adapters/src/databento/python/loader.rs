@@ -38,14 +38,15 @@ use crate::databento::{
 #[pymethods]
 impl DatabentoDataLoader {
     #[new]
-    fn py_new(path: Option<String>) -> PyResult<Self> {
-        Self::new(path.map(PathBuf::from)).map_err(to_pyvalue_err)
+    #[pyo3(signature = (publishers_filepath=None))]
+    fn py_new(publishers_filepath: Option<PathBuf>) -> PyResult<Self> {
+        Self::new(publishers_filepath).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_publishers")]
-    fn py_load_publishers(&mut self, path: String) -> PyResult<()> {
-        let path_buf = PathBuf::from(path);
-        self.load_publishers(path_buf).map_err(to_pyvalue_err)
+    fn py_load_publishers(&mut self, publishers_filepath: PathBuf) -> PyResult<()> {
+        self.load_publishers(publishers_filepath)
+            .map_err(to_pyvalue_err)
     }
 
     #[must_use]
@@ -72,297 +73,217 @@ impl DatabentoDataLoader {
     }
 
     #[pyo3(name = "schema_for_file")]
-    fn py_schema_for_file(&self, path: String) -> PyResult<Option<String>> {
-        self.schema_from_file(PathBuf::from(path))
-            .map_err(to_pyvalue_err)
+    fn py_schema_for_file(&self, filepath: PathBuf) -> PyResult<Option<String>> {
+        self.schema_from_file(&filepath).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_instruments")]
-    fn py_load_instruments(&mut self, py: Python, path: String) -> PyResult<PyObject> {
-        let path_buf = PathBuf::from(path);
-        let iter = self
-            .read_definition_records(path_buf)
-            .map_err(to_pyvalue_err)?;
+    fn py_load_instruments(&mut self, py: Python, filepath: PathBuf) -> PyResult<PyObject> {
+        let iter = self.load_instruments(&filepath).map_err(to_pyvalue_err)?;
 
         let mut data = Vec::new();
-        for result in iter {
-            match result {
-                Ok(instrument) => {
-                    let py_object = instrument_any_to_pyobject(py, instrument)?;
-                    data.push(py_object);
-                }
-                Err(e) => {
-                    eprintln!("{e}");
-                }
-            }
+        for instrument in iter {
+            let py_object = instrument_any_to_pyobject(py, instrument)?;
+            data.push(py_object);
         }
 
-        Ok(PyList::new(py, &data).into())
+        Ok(PyList::new_bound(py, &data).into())
     }
 
-    /// Cannot include trades
+    // Cannot include trades
     #[pyo3(name = "load_order_book_deltas")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_order_book_deltas(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<OrderBookDelta>> {
-        let path_buf = PathBuf::from(path);
-        let iter = self
-            .read_records::<dbn::MboMsg>(path_buf, instrument_id, false)
-            .map_err(to_pyvalue_err)?;
-
-        let mut data = Vec::new();
-        for result in iter {
-            match result {
-                Ok((Some(item1), _)) => {
-                    if let Data::Delta(delta) = item1 {
-                        data.push(delta);
-                    }
-                }
-                Ok((None, _)) => continue,
-                Err(e) => return Err(to_pyvalue_err(e)),
-            }
-        }
-
-        Ok(data)
+        self.load_order_book_deltas(&filepath, instrument_id)
+            .map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_order_book_deltas_as_pycapsule")]
+    #[pyo3(signature = (filepath, instrument_id=None, include_trades=None))]
     fn py_load_order_book_deltas_as_pycapsule(
         &self,
         py: Python,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
         include_trades: Option<bool>,
     ) -> PyResult<PyObject> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_records::<dbn::MboMsg>(path_buf, instrument_id, include_trades.unwrap_or(false))
+            .read_records::<dbn::MboMsg>(&filepath, instrument_id, include_trades.unwrap_or(false))
             .map_err(to_pyvalue_err)?;
 
         exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_order_book_depth10")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_order_book_depth10(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<OrderBookDepth10>> {
-        let path_buf = PathBuf::from(path);
-        let iter = self
-            .read_records::<dbn::Mbp10Msg>(path_buf, instrument_id, false)
-            .map_err(to_pyvalue_err)?;
-
-        let mut data = Vec::new();
-        for result in iter {
-            match result {
-                Ok((Some(item1), _)) => {
-                    if let Data::Depth10(depth) = item1 {
-                        data.push(depth);
-                    }
-                }
-                Ok((None, _)) => continue,
-                Err(e) => return Err(to_pyvalue_err(e)),
-            }
-        }
-
-        Ok(data)
+        self.load_order_book_depth10(&filepath, instrument_id)
+            .map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_order_book_depth10_as_pycapsule")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_order_book_depth10_as_pycapsule(
         &self,
         py: Python,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<PyObject> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_records::<dbn::Mbp10Msg>(path_buf, instrument_id, false)
+            .read_records::<dbn::Mbp10Msg>(&filepath, instrument_id, false)
             .map_err(to_pyvalue_err)?;
 
         exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_quotes")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_quotes(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<QuoteTick>> {
-        let path_buf = PathBuf::from(path);
-        let iter = self
-            .read_records::<dbn::Mbp1Msg>(path_buf, instrument_id, false)
-            .map_err(to_pyvalue_err)?;
-
-        let mut data = Vec::new();
-        for result in iter {
-            match result {
-                Ok((Some(item1), _)) => {
-                    if let Data::Quote(quote) = item1 {
-                        data.push(quote);
-                    }
-                }
-                Ok((None, _)) => continue,
-                Err(e) => return Err(to_pyvalue_err(e)),
-            }
-        }
-
-        Ok(data)
+        self.load_quotes(&filepath, instrument_id)
+            .map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_quotes_as_pycapsule")]
+    #[pyo3(signature = (filepath, instrument_id=None, include_trades=None))]
     fn py_load_quotes_as_pycapsule(
         &self,
         py: Python,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
         include_trades: Option<bool>,
     ) -> PyResult<PyObject> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_records::<dbn::Mbp1Msg>(path_buf, instrument_id, include_trades.unwrap_or(false))
+            .read_records::<dbn::Mbp1Msg>(&filepath, instrument_id, include_trades.unwrap_or(false))
+            .map_err(to_pyvalue_err)?;
+
+        exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
+    }
+
+    #[pyo3(name = "load_bbo_quotes")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
+    fn py_load_bbo_quotes(
+        &self,
+        filepath: PathBuf,
+        instrument_id: Option<InstrumentId>,
+    ) -> PyResult<Vec<QuoteTick>> {
+        self.load_bbo_quotes(&filepath, instrument_id)
+            .map_err(to_pyvalue_err)
+    }
+
+    #[pyo3(name = "load_bbo_quotes_as_pycapsule")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
+    fn py_load_bbo_quotes_as_pycapsule(
+        &self,
+        py: Python,
+        filepath: PathBuf,
+        instrument_id: Option<InstrumentId>,
+    ) -> PyResult<PyObject> {
+        let iter = self
+            .read_records::<dbn::BboMsg>(&filepath, instrument_id, false)
             .map_err(to_pyvalue_err)?;
 
         exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_tbbo_trades")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_tbbo_trades(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<TradeTick>> {
-        let path_buf = PathBuf::from(path);
-        let iter = self
-            .read_records::<dbn::TbboMsg>(path_buf, instrument_id, false)
-            .map_err(to_pyvalue_err)?;
-
-        let mut data = Vec::new();
-        for result in iter {
-            match result {
-                Ok((_, maybe_item2)) => {
-                    if let Some(Data::Trade(trade)) = maybe_item2 {
-                        data.push(trade);
-                    }
-                }
-                Err(e) => return Err(to_pyvalue_err(e)),
-            }
-        }
-
-        Ok(data)
+        self.load_tbbo_trades(&filepath, instrument_id)
+            .map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_tbbo_trades_as_pycapsule")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_tbbo_trades_as_pycapsule(
         &self,
         py: Python,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<PyObject> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_records::<dbn::TbboMsg>(path_buf, instrument_id, false)
+            .read_records::<dbn::TbboMsg>(&filepath, instrument_id, false)
             .map_err(to_pyvalue_err)?;
 
         exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_trades")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_trades(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<TradeTick>> {
-        let path_buf = PathBuf::from(path);
-        let iter = self
-            .read_records::<dbn::TradeMsg>(path_buf, instrument_id, false)
-            .map_err(to_pyvalue_err)?;
-
-        let mut data = Vec::new();
-        for result in iter {
-            match result {
-                Ok((Some(item1), _)) => {
-                    if let Data::Trade(trade) = item1 {
-                        data.push(trade);
-                    }
-                }
-                Ok((None, _)) => continue,
-                Err(e) => return Err(to_pyvalue_err(e)),
-            }
-        }
-
-        Ok(data)
+        self.load_trades(&filepath, instrument_id)
+            .map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_trades_as_pycapsule")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_trades_as_pycapsule(
         &self,
         py: Python,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<PyObject> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_records::<dbn::TradeMsg>(path_buf, instrument_id, false)
+            .read_records::<dbn::TradeMsg>(&filepath, instrument_id, false)
             .map_err(to_pyvalue_err)?;
 
         exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_bars")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_bars(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<Bar>> {
-        let path_buf = PathBuf::from(path);
-        let iter = self
-            .read_records::<dbn::OhlcvMsg>(path_buf, instrument_id, false)
-            .map_err(to_pyvalue_err)?;
-
-        let mut data = Vec::new();
-        for result in iter {
-            match result {
-                Ok((Some(item1), _)) => {
-                    if let Data::Bar(bar) = item1 {
-                        data.push(bar);
-                    }
-                }
-                Ok((None, _)) => continue,
-                Err(e) => return Err(to_pyvalue_err(e)),
-            }
-        }
-
-        Ok(data)
+        self.load_bars(&filepath, instrument_id)
+            .map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_bars_as_pycapsule")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_bars_as_pycapsule(
         &self,
         py: Python,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<PyObject> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_records::<dbn::OhlcvMsg>(path_buf, instrument_id, false)
+            .read_records::<dbn::OhlcvMsg>(&filepath, instrument_id, false)
             .map_err(to_pyvalue_err)?;
 
         exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
     }
 
     #[pyo3(name = "load_status")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_status(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<InstrumentStatus>> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_status_records::<dbn::StatusMsg>(path_buf, instrument_id)
+            .load_status_records::<dbn::StatusMsg>(&filepath, instrument_id)
             .map_err(to_pyvalue_err)?;
 
         let mut data = Vec::new();
@@ -377,14 +298,14 @@ impl DatabentoDataLoader {
     }
 
     #[pyo3(name = "load_imbalance")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_imbalance(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<DatabentoImbalance>> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_imbalance_records::<dbn::ImbalanceMsg>(path_buf, instrument_id)
+            .read_imbalance_records::<dbn::ImbalanceMsg>(&filepath, instrument_id)
             .map_err(to_pyvalue_err)?;
 
         let mut data = Vec::new();
@@ -399,14 +320,14 @@ impl DatabentoDataLoader {
     }
 
     #[pyo3(name = "load_statistics")]
+    #[pyo3(signature = (filepath, instrument_id=None))]
     fn py_load_statistics(
         &self,
-        path: String,
+        filepath: PathBuf,
         instrument_id: Option<InstrumentId>,
     ) -> PyResult<Vec<DatabentoStatistics>> {
-        let path_buf = PathBuf::from(path);
         let iter = self
-            .read_statistics_records::<dbn::StatMsg>(path_buf, instrument_id)
+            .read_statistics_records::<dbn::StatMsg>(&filepath, instrument_id)
             .map_err(to_pyvalue_err)?;
 
         let mut data = Vec::new();

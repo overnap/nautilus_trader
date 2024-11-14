@@ -33,7 +33,9 @@ from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.common.config import ImportableActorConfig
 from nautilus_trader.common.executor import ActorExecutor
 from nautilus_trader.common.executor import TaskId
-from nautilus_trader.persistence.writer import generate_signal_class
+from nautilus_trader.common.signal import generate_signal_class
+from nautilus_trader.model.greeks import GreeksData
+from nautilus_trader.model.greeks import PortfolioGreeks
 
 from cpython.datetime cimport datetime
 from libc.stdint cimport uint64_t
@@ -44,8 +46,6 @@ from nautilus_trader.common.component cimport REQ
 from nautilus_trader.common.component cimport SENT
 from nautilus_trader.common.component cimport Clock
 from nautilus_trader.common.component cimport Component
-from nautilus_trader.common.component cimport LiveClock
-from nautilus_trader.common.component cimport Logger
 from nautilus_trader.common.component cimport MessageBus
 from nautilus_trader.common.component cimport is_logging_initialized
 from nautilus_trader.core.correctness cimport Condition
@@ -54,6 +54,8 @@ from nautilus_trader.core.message cimport Event
 from nautilus_trader.core.rust.common cimport ComponentState
 from nautilus_trader.core.rust.common cimport LogColor
 from nautilus_trader.core.rust.model cimport BookType
+from nautilus_trader.core.rust.model cimport PositionSide
+from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.core.uuid cimport UUID4
 from nautilus_trader.data.messages cimport DataRequest
 from nautilus_trader.data.messages cimport DataResponse
@@ -72,6 +74,7 @@ from nautilus_trader.model.data cimport TradeTick
 from nautilus_trader.model.identifiers cimport ClientId
 from nautilus_trader.model.identifiers cimport ComponentId
 from nautilus_trader.model.identifiers cimport InstrumentId
+from nautilus_trader.model.identifiers cimport StrategyId
 from nautilus_trader.model.identifiers cimport Venue
 from nautilus_trader.model.instruments.base cimport Instrument
 from nautilus_trader.model.instruments.synthetic cimport SyntheticInstrument
@@ -115,16 +118,16 @@ cdef class Actor(Component):
         )
 
         self._warning_events: set[type] = set()
-        self._signal_classes: dict[str, type] = {}
         self._pending_requests: dict[UUID4, Callable[[UUID4], None] | None] = {}
+        self._pyo3_conversion_types = set()
+        self._future_greeks: dict[InstrumentId, list[GreeksData]] = {}
+        self._signal_classes: dict[str, type] = {}
 
         # Indicators
         self._indicators: list[Indicator] = []
         self._indicators_for_quotes: dict[InstrumentId, list[Indicator]] = {}
         self._indicators_for_trades: dict[InstrumentId, list[Indicator]] = {}
         self._indicators_for_bars: dict[BarType, list[Indicator]] = {}
-
-        self._pyo3_conversion_types = set()
 
         # Configuration
         self.config = config
@@ -447,6 +450,26 @@ cdef class Actor(Component):
         """
         # Optionally override in subclass
 
+    cpdef void on_signal(self, signal):
+        """
+        Actions to be performed when running and receives signal data.
+
+        Parameters
+        ----------
+        signal : Data
+            The signal received.
+
+        Warnings
+        --------
+        System method (not intended to be called by user code).
+
+        Notes
+        -----
+        This refers to a data signal, not an operating system signal (such as SIGTERM, SIGKILL, etc.).
+
+        """
+        # Optionally override in subclass
+
     cpdef void on_historical_data(self, data):
         """
         Actions to be performed when running and receives historical data.
@@ -685,14 +708,16 @@ cdef class Actor(Component):
         if indicator not in self._indicators:
             self._indicators.append(indicator)
 
-        if bar_type not in self._indicators_for_bars:
-            self._indicators_for_bars[bar_type] = []  # type: list[Indicator]
+        cdef BarType standard_bar_type = bar_type.standard()
 
-        if indicator not in self._indicators_for_bars[bar_type]:
-            self._indicators_for_bars[bar_type].append(indicator)
-            self.log.info(f"Registered Indicator {indicator} for {bar_type} bars")
+        if standard_bar_type not in self._indicators_for_bars:
+            self._indicators_for_bars[standard_bar_type] = []  # type: list[Indicator]
+
+        if indicator not in self._indicators_for_bars[standard_bar_type]:
+            self._indicators_for_bars[standard_bar_type].append(indicator)
+            self.log.info(f"Registered Indicator {indicator} for {standard_bar_type} bars")
         else:
-            self.log.error(f"Indicator {indicator} already registered for {bar_type} bars")
+            self.log.error(f"Indicator {indicator} already registered for {standard_bar_type} bars")
 
 # -- ACTOR COMMANDS -------------------------------------------------------------------------------
 
@@ -784,7 +809,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(synthetic, "synthetic")
-        Condition.true(self.cache.synthetic(synthetic.id) is None, f"`synthetic` {synthetic.id} already exists")
+        Condition.is_true(self.cache.synthetic(synthetic.id) is None, f"`synthetic` {synthetic.id} already exists")
 
         self.cache.add_synthetic(synthetic)
 
@@ -808,7 +833,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(synthetic, "synthetic")
-        Condition.true(self.cache.synthetic(synthetic.id) is not None, f"`synthetic` {synthetic.id} does not exist")
+        Condition.is_true(self.cache.synthetic(synthetic.id) is not None, f"`synthetic` {synthetic.id} does not exist")
 
         # This will replace the previous synthetic
         self.cache.add_synthetic(synthetic)
@@ -1078,7 +1103,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(data_type, "data_type")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.subscribe(
             topic=f"data.{data_type.topic}",
@@ -1112,7 +1137,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(venue, "venue")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.subscribe(
             topic=f"data.instrument.{venue}.*",
@@ -1143,12 +1168,12 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.subscribe(
             topic=f"data.instrument"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}",
+                  f".{instrument_id.symbol.topic()}",
             handler=self.handle_instrument,
         )
 
@@ -1197,7 +1222,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         if pyo3_conversion:
             self._pyo3_conversion_types.add(OrderBookDeltas)
@@ -1205,7 +1230,7 @@ cdef class Actor(Component):
         self._msgbus.subscribe(
             topic=f"data.book.deltas"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}",
+                  f".{instrument_id.symbol.topic()}",
             handler=self.handle_order_book_deltas,
         )
 
@@ -1275,7 +1300,7 @@ cdef class Actor(Component):
         Condition.not_none(instrument_id, "instrument_id")
         Condition.not_negative(depth, "depth")
         Condition.positive_int(interval_ms, "interval_ms")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         if book_type == BookType.L1_MBP and depth > 1:
             self._log.error(
@@ -1287,7 +1312,7 @@ cdef class Actor(Component):
         self._msgbus.subscribe(
             topic=f"data.book.snapshots"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}"
+                  f".{instrument_id.symbol.topic()}"
                   f".{interval_ms}",
             handler=self.handle_order_book,
         )
@@ -1323,12 +1348,12 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.subscribe(
             topic=f"data.quotes"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}",
+                  f".{instrument_id.symbol.topic()}",
             handler=self.handle_quote_tick,
         )
 
@@ -1356,12 +1381,12 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.subscribe(
             topic=f"data.trades"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}",
+                  f".{instrument_id.symbol.topic()}",
             handler=self.handle_trade_tick,
         )
 
@@ -1397,7 +1422,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(bar_type, "bar_type")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.subscribe(
             topic=f"data.bars.{bar_type.standard()}",
@@ -1433,10 +1458,10 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.subscribe(
-            topic=f"data.status.{instrument_id.venue}.{instrument_id.symbol}",
+            topic=f"data.status.{instrument_id.venue}.{instrument_id.symbol.topic()}",
             handler=self.handle_instrument_status,
         )
 
@@ -1465,7 +1490,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.subscribe(
             topic=f"data.venue.close_price.{instrument_id.to_str()}",
@@ -1496,7 +1521,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(data_type, "data_type")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.unsubscribe(
             topic=f"data.{data_type.topic}",
@@ -1530,7 +1555,7 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(venue, "venue")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.unsubscribe(
             topic=f"data.instrument.{venue}.*",
@@ -1561,12 +1586,12 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.unsubscribe(
             topic=f"data.instrument"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}",
+                  f".{instrument_id.symbol.topic()}",
             handler=self.handle_instrument,
         )
 
@@ -1594,12 +1619,12 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.unsubscribe(
             topic=f"data.book.deltas"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}",
+                  f".{instrument_id.symbol.topic()}",
             handler=self.handle_order_book_deltas,
         )
 
@@ -1636,12 +1661,12 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.unsubscribe(
             topic=f"data.book.snapshots"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}"
+                  f".{instrument_id.symbol.topic()}"
                   f".{interval_ms}",
             handler=self.handle_order_book,
         )
@@ -1673,12 +1698,12 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.unsubscribe(
             topic=f"data.quotes"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}",
+                  f".{instrument_id.symbol.topic()}",
             handler=self.handle_quote_tick,
         )
 
@@ -1706,12 +1731,12 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.unsubscribe(
             topic=f"data.trades"
                   f".{instrument_id.venue}"
-                  f".{instrument_id.symbol}",
+                  f".{instrument_id.symbol.topic()}",
             handler=self.handle_trade_tick,
         )
 
@@ -1739,23 +1764,25 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(bar_type, "bar_type")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
+
+        standard_bar_type = bar_type.standard()
 
         self._msgbus.unsubscribe(
-            topic=f"data.bars.{bar_type}",
+            topic=f"data.bars.{standard_bar_type}",
             handler=self.handle_bar,
         )
 
         cdef Unsubscribe command = Unsubscribe(
             client_id=client_id,
             venue=bar_type.instrument_id.venue,
-            data_type=DataType(Bar, metadata={"bar_type": bar_type}),
+            data_type=DataType(Bar, metadata={"bar_type": standard_bar_type}),
             command_id=UUID4(),
             ts_init=self._clock.timestamp_ns(),
         )
 
         self._send_data_cmd(command)
-        self._log.info(f"Unsubscribed from {bar_type} bar data")
+        self._log.info(f"Unsubscribed from {standard_bar_type} bar data")
 
     cpdef void unsubscribe_instrument_status(self, InstrumentId instrument_id, ClientId client_id = None):
         """
@@ -1771,10 +1798,10 @@ cdef class Actor(Component):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.unsubscribe(
-            topic=f"data.status.{instrument_id.venue}.{instrument_id.symbol}",
+            topic=f"data.status.{instrument_id.venue}.{instrument_id.symbol.topic()}",
             handler=self.handle_instrument_status,
         )
 
@@ -1804,7 +1831,7 @@ cdef class Actor(Component):
         Condition.not_none(data_type, "data_type")
         Condition.not_none(data, "data")
         Condition.type(data, data_type.type, "data", "data.type")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         self._msgbus.publish_c(topic=f"data.{data_type.topic}", msg=data)
 
@@ -1816,7 +1843,7 @@ cdef class Actor(Component):
         ----------
         name : str
             The name of the signal being published.
-            The signal name is case-insensitive and will be capitalized
+            The signal name will be converted to title case, with each word capitalized
             (e.g., 'example' becomes 'SignalExample').
         value : object
             The signal data to publish.
@@ -1828,7 +1855,7 @@ cdef class Actor(Component):
         Condition.not_none(name, "name")
         Condition.not_none(value, "value")
         Condition.is_in(type(value), (int, float, str), "value", "int, float, str")
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
 
         cdef type cls = self._signal_classes.get(name)
         if cls is None:
@@ -1862,7 +1889,7 @@ cdef class Actor(Component):
 
         self._msgbus.subscribe(
             topic=f"data.{topic}",
-            handler=self.handle_data,
+            handler=self.handle_signal,
         )
 
 # -- REQUESTS -------------------------------------------------------------------------------------
@@ -1897,7 +1924,7 @@ cdef class Actor(Component):
             If `callback` is not `None` and not of type `Callable`.
 
         """
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
         Condition.not_none(client_id, "client_id")
         Condition.not_none(data_type, "data_type")
         Condition.callable_or_none(callback, "callback")
@@ -1959,10 +1986,10 @@ cdef class Actor(Component):
             If `callback` is not `None` and not of type `Callable`.
 
         """
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
         Condition.not_none(instrument_id, "instrument_id")
         if start is not None and end is not None:
-            Condition.true(start < end, "start was >= end")
+            Condition.is_true(start < end, "start was >= end")
         Condition.callable_or_none(callback, "callback")
 
         cdef UUID4 request_id = UUID4()
@@ -2026,10 +2053,10 @@ cdef class Actor(Component):
             If `callback` is not `None` and not of type `Callable`.
 
         """
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
         Condition.not_none(venue, "venue")
         if start is not None and end is not None:
-            Condition.true(start < end, "start was >= end")
+            Condition.is_true(start < end, "start was >= end")
         Condition.callable_or_none(callback, "callback")
 
         cdef UUID4 request_id = UUID4()
@@ -2086,7 +2113,7 @@ cdef class Actor(Component):
             If callback is not None and not of type Callable.
 
         """
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
         Condition.not_none(instrument_id, "instrument_id")
         Condition.callable_or_none(callback, "callback")
 
@@ -2150,10 +2177,10 @@ cdef class Actor(Component):
             If `callback` is not `None` and not of type `Callable`.
 
         """
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
         Condition.not_none(instrument_id, "instrument_id")
         if start is not None and end is not None:
-            Condition.true(start < end, "start was >= end")
+            Condition.is_true(start < end, "start was >= end")
         Condition.callable_or_none(callback, "callback")
 
         cdef UUID4 request_id = UUID4()
@@ -2217,10 +2244,10 @@ cdef class Actor(Component):
             If `callback` is not `None` and not of type `Callable`.
 
         """
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
         Condition.not_none(instrument_id, "instrument_id")
         if start is not None and end is not None:
-            Condition.true(start < end, "start was >= end")
+            Condition.is_true(start < end, "start was >= end")
         Condition.callable_or_none(callback, "callback")
 
         cdef UUID4 request_id = UUID4()
@@ -2284,10 +2311,10 @@ cdef class Actor(Component):
             If `callback` is not `None` and not of type `Callable`.
 
         """
-        Condition.true(self.trader_id is not None, "The actor has not been registered")
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
         Condition.not_none(bar_type, "bar_type")
         if start is not None and end is not None:
-            Condition.true(start < end, "start was >= end")
+            Condition.is_true(start < end, "start was >= end")
         Condition.callable_or_none(callback, "callback")
 
         cdef UUID4 request_id = UUID4()
@@ -2309,6 +2336,106 @@ cdef class Actor(Component):
 
         return request_id
 
+    cpdef UUID4 request_aggregated_bars(
+            self,
+            list bar_types,
+            datetime start = None,
+            datetime end = None,
+            bint update_existing_subscriptions = False,
+            bint include_external_data = False,
+            ClientId client_id = None,
+            callback: Callable[[UUID4], None] | None = None,
+    ):
+        """
+        Request historical aggregated `Bar` data for multiple bar types.
+        The first bar is used to determine which market data type will be queried.
+        This can either be quote ticks, trade ticks or bars. If bars are queried,
+        the first bar type needs to have a composite bar that is external (i.e. not internal/aggregated).
+        This external bar type will be queried.
+
+        If `end` is ``None`` then will request up to the most recent data.
+
+        Parameters
+        ----------
+        bar_types : list[BarType]
+            The list of bar types for the request. Composite bars can also be used and need to
+            figure in the list after a BarType on which it depends.
+        start : datetime, optional
+            The start datetime (UTC) of request time range (inclusive).
+        end : datetime, optional
+            The end datetime (UTC) of request time range.
+            The inclusiveness depends on individual data client implementation.
+        update_existing_subscriptions : bool, default False
+            If True, updates the aggregators of any existing subscription with the queried external data.
+        include_external_data : bool, default False
+            If True, includes the queried external data in the response.
+        client_id : ClientId, optional
+            The specific client ID for the command.
+            If ``None`` then will be inferred from the venue in the instrument ID.
+        callback : Callable[[UUID4], None], optional
+            The registered callback, to be called with the request ID when the response has
+            completed processing.
+
+        Returns
+        -------
+        UUID4
+            The `request_id` for the request.
+
+        Raises
+        ------
+        ValueError
+            If `start` and `end` are not `None` and `start` is >= `end`.
+            If `bar_types` is empty.
+        TypeError
+            If `callback` is not `None` and not of type `Callable`.
+            If `bar_types` is empty or contains elements not of type `BarType`.
+
+        """
+        Condition.is_true(self.trader_id is not None, "The actor has not been registered")
+        Condition.not_empty(bar_types, "bar_types")
+        Condition.list_type(bar_types, BarType, "bar_types")
+        if start is not None and end is not None:
+            Condition.is_true(start < end, "start was >= end")
+        Condition.callable_or_none(callback, "callback")
+
+        for bar_type in bar_types:
+            if not bar_type.is_internally_aggregated():
+                self._log.error(f"request_aggregated_bars: {bar_type} must be internally aggregated")
+                return
+
+        first = bar_types[0]
+        market_data_type = ""
+
+        if first.is_composite():
+            market_data_type = "bars"
+        elif first.spec.price_type == PriceType.LAST:
+            market_data_type = "trade_ticks"
+        else:
+            market_data_type = "quote_ticks"
+
+        cdef UUID4 request_id = UUID4()
+        cdef DataRequest request = DataRequest(
+            client_id=client_id,
+            venue=first.instrument_id.venue,
+            data_type=DataType(Bar, metadata={
+                "bar_types": tuple(bar_types),
+                "market_data_type": market_data_type,
+                "instrument_id": first.instrument_id,
+                "bar_type": first.composite(),
+                "start": start,
+                "end": end,
+                "update_existing_subscriptions": update_existing_subscriptions,
+                "include_external_data": include_external_data,
+            }),
+            callback=self._handle_aggregated_bars_response,
+            request_id=request_id,
+            ts_init=self._clock.timestamp_ns(),
+        )
+
+        self._pending_requests[request_id] = callback
+        self._send_data_req(request)
+
+        return request_id
     cpdef bint is_pending_request(self, UUID4 request_id):
         """
         Return whether the request for the given identifier is pending processing.
@@ -2750,6 +2877,31 @@ cdef class Actor(Component):
                 self._log.exception(f"Error on handling {repr(data)}", e)
                 raise
 
+    cpdef void handle_signal(self, Data signal):
+        """
+        Handle the given signal.
+
+        If state is ``RUNNING`` then passes to `on_signal`.
+
+        Parameters
+        ----------
+        signal : Data
+            The signal received.
+
+        Warnings
+        --------
+        System method (not intended to be called by user code).
+
+        """
+        Condition.not_none(signal, "signal")
+
+        if self._fsm.state == ComponentState.RUNNING:
+            try:
+                self.on_signal(signal)
+            except Exception as e:
+                self._log.exception(f"Error on handling {repr(signal)}", e)
+                raise
+
     cpdef void handle_historical_data(self, data):
         """
         Handle the given historical data.
@@ -2825,6 +2977,19 @@ cdef class Actor(Component):
         self.handle_bars(response.data)
         self._finish_response(response.correlation_id)
 
+    cpdef void _handle_aggregated_bars_response(self, DataResponse response):
+        if "bars" in response.data:
+            for bars in response.data["bars"].values():
+                self.handle_bars(bars)
+
+        if "quote_ticks" in response.data:
+            self.handle_quote_ticks(response.data["quote_ticks"])
+
+        if "trade_ticks" in response.data:
+            self.handle_trade_ticks(response.data["trade_ticks"])
+
+        self._finish_response(response.correlation_id)
+
     cpdef void _finish_response(self, UUID4 request_id):
         callback: Callable | None = self._pending_requests.pop(request_id, None)
         if callback is not None:
@@ -2856,3 +3021,83 @@ cdef class Actor(Component):
         if is_logging_initialized():
             self._log.info(f"{REQ}{SENT} {request}")
         self._msgbus.request(endpoint="DataEngine.request", request=request)
+
+# -- GREEKS ---------------------------------------------------------------------------------------
+
+    def instrument_greeks_data(self, InstrumentId instrument_id) -> GreeksData:
+        """
+        Retrieve the Greeks data for a given instrument.
+
+        This method handles both options and futures instruments. For options,
+        it retrieves the Greeks data from the cache. For futures, it creates
+        a GreeksData object based on the instrument's delta and multiplier.
+
+        Parameters
+        ----------
+        instrument_id : InstrumentId
+            The identifier of the instrument for which to retrieve Greeks data.
+
+        Returns
+        -------
+        GreeksData
+            The Greeks data for the specified instrument, including vol, price, delta, gamma, vega, theta.
+
+        """
+        from nautilus_trader.risk.greeks import greeks_key
+
+        # Option case, to avoid querying definition
+        if ' ' in instrument_id.symbol.value:
+            return GreeksData.from_bytes(self.cache.get(greeks_key(instrument_id)))
+
+        # Future case
+        if instrument_id not in self._future_greeks:
+            future_definition = self.cache.instrument(instrument_id)
+            self._future_greeks[instrument_id] = GreeksData.from_delta(instrument_id, int(future_definition.multiplier))
+
+        return self._future_greeks[instrument_id]
+
+    def portfolio_greeks(self, str underlying = "", Venue venue = None, InstrumentId instrument_id = None,
+                         StrategyId strategy_id = None,
+                         PositionSide side = PositionSide.NO_POSITION_SIDE) -> PortfolioGreeks:
+        """
+        Calculate the portfolio Greeks for a given set of positions.
+
+        This method aggregates the Greeks data for all open positions that match the specified criteria.
+
+        Parameters
+        ----------
+        underlying : str, optional
+            The underlying asset symbol to filter positions. If provided, only positions with instruments
+            starting with this symbol will be included. Default is an empty string (no filtering).
+        venue : Venue, optional
+            The venue to filter positions. If provided, only positions from this venue will be included.
+        instrument_id : InstrumentId, optional
+            The instrument ID to filter positions. If provided, only positions for this instrument will be included.
+        strategy_id : StrategyId, optional
+            The strategy ID to filter positions. If provided, only positions for this strategy will be included.
+        side : PositionSide, optional
+            The position side to filter. If provided, only positions with this side will be included.
+            Default is PositionSide.NO_POSITION_SIDE (no filtering).
+
+        Returns
+        -------
+        PortfolioGreeks
+            The aggregated Greeks data for the portfolio, including delta, gamma, vega, theta.
+
+        """
+        ts_event = self.clock.timestamp_ns()
+        portfolio_greeks = PortfolioGreeks(ts_event, ts_event)
+        open_positions = self.cache.positions_open(venue, instrument_id, strategy_id, side)
+
+        for position in open_positions:
+            position_instrument_id = position.instrument_id
+
+            if underlying != "" and not position_instrument_id.value.startswith(underlying):
+                continue
+
+            quantity = float(position.signed_qty)
+            instrument_greeks = self.instrument_greeks_data(position_instrument_id)
+            position_greeks = quantity * instrument_greeks
+            portfolio_greeks += position_greeks
+
+        return portfolio_greeks

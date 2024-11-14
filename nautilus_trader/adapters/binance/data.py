@@ -71,7 +71,6 @@ from nautilus_trader.model.identifiers import ClientId
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.model.identifiers import Symbol
 from nautilus_trader.model.identifiers import TradeId
-from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.objects import Quantity
 
@@ -131,7 +130,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
         super().__init__(
             loop=loop,
             client_id=ClientId(name or BINANCE_VENUE.value),
-            venue=Venue(name or BINANCE_VENUE.value),
+            venue=BINANCE_VENUE,
             msgbus=msgbus,
             cache=cache,
             clock=clock,
@@ -456,7 +455,10 @@ class BinanceCommonDataClient(LiveMarketDataClient):
             await self._ws_client.subscribe_trades(instrument_id.symbol.value)
 
     async def _subscribe_bars(self, bar_type: BarType) -> None:
-        PyCondition.true(bar_type.is_externally_aggregated(), "aggregation_source is not EXTERNAL")
+        PyCondition.is_true(
+            bar_type.is_externally_aggregated(),
+            "aggregation_source is not EXTERNAL",
+        )
 
         if not bar_type.spec.is_time_aggregated():
             self._log.error(
@@ -951,10 +953,11 @@ class BinanceCommonDataClient(LiveMarketDataClient):
     # -- WEBSOCKET HANDLERS ---------------------------------------------------------------------------------
 
     def _handle_ws_message(self, raw: bytes) -> None:
-        wrapper = self._decoder_data_msg_wrapper.decode(raw)
-        if not wrapper.stream:
-            return  # Control message response
         try:
+            wrapper = self._decoder_data_msg_wrapper.decode(raw)
+            if not wrapper.stream:
+                return  # Control message response
+
             handled = False
             for handler in self._ws_handlers:
                 if handler in wrapper.stream:
@@ -965,7 +968,7 @@ class BinanceCommonDataClient(LiveMarketDataClient):
                     f"Unrecognized websocket message type: {wrapper.stream}",
                 )
         except Exception as e:
-            self._log.error(f"Error handling websocket message, {e}")
+            self._log.error(f"Error handling websocket message {raw!r}, {e}")
 
     def _handle_book_diff_update(self, raw: bytes) -> None:
         msg = self._decoder_order_book_msg.decode(raw)

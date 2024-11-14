@@ -30,6 +30,7 @@ use crate::{
     types::{currency::Currency, money::Money, price::Price, quantity::Quantity},
 };
 
+/// Represents a generic currency pair instrument in a spot/cash market.
 #[repr(C)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(
@@ -257,8 +258,7 @@ impl Instrument for CurrencyPair {
     }
 
     fn multiplier(&self) -> Quantity {
-        // SAFETY: Unwrap safe as using known values
-        Quantity::new(1.0, 0)
+        Quantity::from(1)
     }
 
     fn lot_size(&self) -> Option<Quantity> {

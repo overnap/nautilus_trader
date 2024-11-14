@@ -13,7 +13,6 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use nautilus_core::python::to_pyvalue_err;
 use nautilus_model::data::{bar::Bar, quote::QuoteTick, trade::TradeTick};
 use pyo3::prelude::*;
 
@@ -24,6 +23,8 @@ use crate::{
 #[pymethods]
 impl RelativeVolatilityIndex {
     #[new]
+    #[pyo3(signature = (period, scalar=None, ma_type=None))]
+    #[must_use]
     pub fn py_new(period: usize, scalar: Option<f64>, ma_type: Option<MovingAverageType>) -> Self {
         Self::new(period, scalar, ma_type)
     }
@@ -43,13 +44,13 @@ impl RelativeVolatilityIndex {
 
     #[getter]
     #[pyo3(name = "period")]
-    fn py_period(&self) -> usize {
+    const fn py_period(&self) -> usize {
         self.period
     }
 
     #[getter]
     #[pyo3(name = "scalar")]
-    fn py_scalar(&self) -> f64 {
+    const fn py_scalar(&self) -> f64 {
         self.scalar
     }
 
@@ -61,13 +62,13 @@ impl RelativeVolatilityIndex {
 
     #[getter]
     #[pyo3(name = "value")]
-    fn py_value(&self) -> f64 {
+    const fn py_value(&self) -> f64 {
         self.value
     }
 
     #[getter]
     #[pyo3(name = "initialized")]
-    fn py_initialized(&self) -> bool {
+    const fn py_initialized(&self) -> bool {
         self.initialized
     }
 
@@ -77,12 +78,12 @@ impl RelativeVolatilityIndex {
     }
 
     #[pyo3(name = "handle_quote_tick")]
-    fn py_handle_quote_tick(&mut self, _tick: &QuoteTick) {
+    fn py_handle_quote_tick(&mut self, _quote: &QuoteTick) {
         // Function body intentionally left blank.
     }
 
     #[pyo3(name = "handle_trade_tick")]
-    fn py_handle_trade_tick(&mut self, _tick: &TradeTick) {
+    fn py_handle_trade_tick(&mut self, _trade: &TradeTick) {
         // Function body intentionally left blank.
     }
 

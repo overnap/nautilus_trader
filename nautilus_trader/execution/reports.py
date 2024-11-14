@@ -217,7 +217,7 @@ class OrderStatusReport(ExecutionReport):
         self.quantity = quantity
         self.filled_qty = filled_qty
         self.leaves_qty = Quantity(
-            self.quantity - self.filled_qty,
+            float(self.quantity - self.filled_qty),
             self.quantity.precision,
         )
         self.display_qty = display_qty
@@ -228,6 +228,24 @@ class OrderStatusReport(ExecutionReport):
         self.ts_accepted = ts_accepted
         self.ts_triggered = ts_triggered or 0
         self.ts_last = ts_last
+
+    @property
+    def is_open(self) -> bool:
+        """
+        Return whether the reported order status is 'open'.
+
+        Returns
+        -------
+        bool
+
+        """
+        return self.order_status in (
+            OrderStatus.ACCEPTED,
+            OrderStatus.TRIGGERED,
+            OrderStatus.PENDING_CANCEL,
+            OrderStatus.PENDING_UPDATE,
+            OrderStatus.PARTIALLY_FILLED,
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, OrderStatusReport):

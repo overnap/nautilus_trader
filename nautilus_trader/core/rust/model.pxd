@@ -151,6 +151,8 @@ cdef extern from "../includes/model.h":
         WARRANT # = 10,
         # A warrant instrument class. A derivative that gives the holder the right, but not the obligation, to buy or sell a security—most commonly an equity—at a certain price before expiration.
         SPORTS_BETTING # = 11,
+        # A binary option instrument class. A type of derivative where the payoff is either a fixed monetary amount or nothing, based on a yes/no proposition about an underlying event.
+        BINARY_OPTION # = 12,
 
     # The type of event for an instrument close.
     cpdef enum InstrumentCloseType:
@@ -332,7 +334,7 @@ cdef extern from "../includes/model.h":
         BID # = 1,
         # A quoted order price where a seller is willing to sell a quantity of an instrument.
         ASK # = 2,
-        # The midpoint between the bid and ask prices.
+        # The midpoint between the best bid and best ask prices.
         MID # = 3,
         # The last price at which a trade was made for an instrument.
         LAST # = 4,
@@ -354,13 +356,13 @@ cdef extern from "../includes/model.h":
 
     # The 'Time in Force' instruction for an order.
     cpdef enum TimeInForce:
-        # Good Till Canceled (GTC) - the order remains active until canceled.
+        # Good-Till-Canceled (GTC) - the order remains active until canceled.
         GTC # = 1,
-        # Immediate or Cancel (IOC) - the order is filled as much as possible, the rest is canceled.
+        # Immediate-Or-Cancel (IOC) - the order is filled as much as possible, the rest is canceled.
         IOC # = 2,
-        # Fill or Kill (FOK) - the order must be executed in full immediately, or it is canceled.
+        # Fill-Or-Kill (FOK) - the order must be executed in full immediately, or it is canceled.
         FOK # = 3,
-        # Good Till Date/Time (GTD) - the order is active until a specified date or time.
+        # Good-Till-Date/Time (GTD) - the order is active until a specified date or time.
         GTD # = 4,
         # Day - the order is active until the end of the current trading session.
         DAY # = 5,
@@ -1062,7 +1064,7 @@ cdef extern from "../includes/model.h":
     uint64_t quote_tick_hash(const QuoteTick_t *delta);
 
     # Returns a [`QuoteTick`] as a C string pointer.
-    const char *quote_tick_to_cstr(const QuoteTick_t *tick);
+    const char *quote_tick_to_cstr(const QuoteTick_t *quote);
 
     TradeTick_t trade_tick_new(InstrumentId_t instrument_id,
                                int64_t price_raw,
@@ -1079,7 +1081,7 @@ cdef extern from "../includes/model.h":
     uint64_t trade_tick_hash(const TradeTick_t *delta);
 
     # Returns a [`TradeTick`] as a C string pointer.
-    const char *trade_tick_to_cstr(const TradeTick_t *tick);
+    const char *trade_tick_to_cstr(const TradeTick_t *trade);
 
     const char *account_type_to_cstr(AccountType value);
 
@@ -1482,6 +1484,12 @@ cdef extern from "../includes/model.h":
 
     uint64_t symbol_hash(const Symbol_t *id);
 
+    uint8_t symbol_is_composite(const Symbol_t *id);
+
+    const char *symbol_root(const Symbol_t *id);
+
+    const char *symbol_topic(const Symbol_t *id);
+
     # Returns a Nautilus identifier from a C string pointer.
     #
     # # Safety
@@ -1663,7 +1671,7 @@ cdef extern from "../includes/model.h":
     #
     # This function panics:
     # - If book type is not `L1_MBP`.
-    void orderbook_update_trade_tick(OrderBook_API *book, const TradeTick_t *tick);
+    void orderbook_update_trade_tick(OrderBook_API *book, const TradeTick_t *trade);
 
     CVec orderbook_simulate_fills(const OrderBook_API *book, BookOrder_t order);
 

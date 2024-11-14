@@ -18,6 +18,8 @@ from typing import Callable
 from cpython.datetime cimport datetime
 from libc.stdint cimport uint64_t
 
+from nautilus_trader.risk.greeks import GreeksData
+
 from nautilus_trader.cache.base cimport CacheFacade
 from nautilus_trader.common.component cimport Clock
 from nautilus_trader.common.component cimport Component
@@ -37,7 +39,6 @@ from nautilus_trader.model.data cimport BarType
 from nautilus_trader.model.data cimport DataType
 from nautilus_trader.model.data cimport InstrumentClose
 from nautilus_trader.model.data cimport InstrumentStatus
-from nautilus_trader.model.data cimport OrderBookDeltas
 from nautilus_trader.model.data cimport QuoteTick
 from nautilus_trader.model.data cimport TradeTick
 from nautilus_trader.model.identifiers cimport ClientId
@@ -51,13 +52,14 @@ from nautilus_trader.portfolio.base cimport PortfolioFacade
 cdef class Actor(Component):
     cdef object _executor
     cdef set[type] _warning_events
-    cdef dict[str, type] _signal_classes
     cdef dict[UUID4, object] _pending_requests
+    cdef set[type] _pyo3_conversion_types
+    cdef dict[InstrumentId, list[GreeksData]] _future_greeks
+    cdef dict[str, type] _signal_classes
     cdef list[Indicator] _indicators
     cdef dict[InstrumentId, list[Indicator]] _indicators_for_quotes
     cdef dict[InstrumentId, list[Indicator]] _indicators_for_trades
     cdef dict[BarType, list[Indicator]] _indicators_for_bars
-    cdef set[type] _pyo3_conversion_types
 
     cdef readonly PortfolioFacade portfolio
     """The read-only portfolio for the actor.\n\n:returns: `PortfolioFacade`"""
@@ -94,6 +96,7 @@ cdef class Actor(Component):
     cpdef void on_trade_tick(self, TradeTick tick)
     cpdef void on_bar(self, Bar bar)
     cpdef void on_data(self, data)
+    cpdef void on_signal(self, signal)
     cpdef void on_historical_data(self, data)
     cpdef void on_event(self, Event event)
 
@@ -228,6 +231,16 @@ cdef class Actor(Component):
         ClientId client_id=*,
         callback=*,
     )
+    cpdef UUID4 request_aggregated_bars(
+        self,
+        list bar_types,
+        datetime start=*,
+        datetime end=*,
+        bint update_existing_subscriptions=*,
+        bint include_external_data=*,
+        ClientId client_id=*,
+        callback=*,
+    )
     cpdef bint is_pending_request(self, UUID4 request_id)
     cpdef bint has_pending_requests(self)
     cpdef set pending_requests(self)
@@ -245,6 +258,7 @@ cdef class Actor(Component):
     cpdef void handle_bar(self, Bar bar)
     cpdef void handle_bars(self, list bars)
     cpdef void handle_data(self, Data data)
+    cpdef void handle_signal(self, Data signal)
     cpdef void handle_instrument_status(self, InstrumentStatus data)
     cpdef void handle_instrument_close(self, InstrumentClose data)
     cpdef void handle_historical_data(self, data)
@@ -258,6 +272,7 @@ cdef class Actor(Component):
     cpdef void _handle_quote_ticks_response(self, DataResponse response)
     cpdef void _handle_trade_ticks_response(self, DataResponse response)
     cpdef void _handle_bars_response(self, DataResponse response)
+    cpdef void _handle_aggregated_bars_response(self, DataResponse response)
     cpdef void _finish_response(self, UUID4 request_id)
     cpdef void _handle_indicators_for_quote(self, list indicators, QuoteTick tick)
     cpdef void _handle_indicators_for_trade(self, list indicators, TradeTick tick)

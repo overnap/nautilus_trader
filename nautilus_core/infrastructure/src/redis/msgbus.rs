@@ -35,6 +35,7 @@ use nautilus_core::{
     time::{duration_since_unix_epoch, get_atomic_clock_realtime},
     uuid::UUID4,
 };
+use nautilus_cryptography::providers::install_cryptographic_provider;
 use nautilus_model::identifiers::TraderId;
 use redis::*;
 use streams::StreamReadOptions;
@@ -77,6 +78,8 @@ impl MessageBusDatabaseAdapter for RedisMessageBusDatabase {
         instance_id: UUID4,
         config: MessageBusConfig,
     ) -> anyhow::Result<Self> {
+        install_cryptographic_provider();
+
         let config_clone = config.clone();
         let db_config = config
             .database
@@ -379,12 +382,12 @@ pub async fn stream_messages(
                                 match decode_bus_message(array) {
                                     Ok(msg) => {
                                         if let Err(e) = tx.send(msg).await {
-                                            tracing::debug!("Channel closed: {:?}", e);
+                                            tracing::debug!("Channel closed: {e:?}");
                                             break 'outer; // End streaming
                                         }
                                     }
                                     Err(e) => {
-                                        tracing::error!("{:?}", e);
+                                        tracing::error!("{e:?}");
                                         continue;
                                     }
                                 }
@@ -394,7 +397,7 @@ pub async fn stream_messages(
                 }
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Error reading from stream: {:?}", e));
+                return Err(anyhow::anyhow!("Error reading from stream: {e:?}"));
             }
         }
     }
@@ -406,7 +409,7 @@ pub async fn stream_messages(
 fn decode_bus_message(stream_msg: &redis::Value) -> anyhow::Result<BusMessage> {
     if let redis::Value::Array(stream_msg) = stream_msg {
         if stream_msg.len() < 4 {
-            anyhow::bail!("Invalid stream message format: {:?}", stream_msg);
+            anyhow::bail!("Invalid stream message format: {stream_msg:?}");
         }
 
         let topic = match &stream_msg[1] {
@@ -414,20 +417,20 @@ fn decode_bus_message(stream_msg: &redis::Value) -> anyhow::Result<BusMessage> {
                 String::from_utf8(bytes.clone()).expect("Error parsing topic")
             }
             _ => {
-                anyhow::bail!("Invalid topic format: {:?}", stream_msg);
+                anyhow::bail!("Invalid topic format: {stream_msg:?}");
             }
         };
 
         let payload = match &stream_msg[3] {
             redis::Value::BulkString(bytes) => Bytes::copy_from_slice(bytes),
             _ => {
-                anyhow::bail!("Invalid payload format: {:?}", stream_msg);
+                anyhow::bail!("Invalid payload format: {stream_msg:?}");
             }
         };
 
         Ok(BusMessage { topic, payload })
     } else {
-        anyhow::bail!("Invalid stream message format: {:?}", stream_msg)
+        anyhow::bail!("Invalid stream message format: {stream_msg:?}")
     }
 }
 

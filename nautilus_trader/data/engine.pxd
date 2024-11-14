@@ -13,10 +13,15 @@
 #  limitations under the License.
 # -------------------------------------------------------------------------------------------------
 
+from libc.stdint cimport uint64_t
+
+from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.cache.cache cimport Cache
 from nautilus_trader.common.component cimport Component
 from nautilus_trader.common.component cimport TimeEvent
 from nautilus_trader.core.data cimport Data
+from nautilus_trader.core.rust.model cimport BookType
+from nautilus_trader.data.aggregation cimport BarAggregator
 from nautilus_trader.data.client cimport DataClient
 from nautilus_trader.data.client cimport MarketDataClient
 from nautilus_trader.data.messages cimport DataCommand
@@ -25,6 +30,7 @@ from nautilus_trader.data.messages cimport DataResponse
 from nautilus_trader.data.messages cimport Subscribe
 from nautilus_trader.data.messages cimport Unsubscribe
 from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport BarAggregation
 from nautilus_trader.model.data cimport BarType
 from nautilus_trader.model.data cimport CustomData
 from nautilus_trader.model.data cimport DataType
@@ -35,19 +41,18 @@ from nautilus_trader.model.data cimport OrderBookDeltas
 from nautilus_trader.model.data cimport OrderBookDepth10
 from nautilus_trader.model.data cimport QuoteTick
 from nautilus_trader.model.data cimport TradeTick
+from nautilus_trader.model.identifiers cimport ClientId
 from nautilus_trader.model.identifiers cimport InstrumentId
 from nautilus_trader.model.identifiers cimport Venue
 from nautilus_trader.model.instruments.base cimport Instrument
 from nautilus_trader.model.instruments.synthetic cimport SyntheticInstrument
-from nautilus_trader.model.objects cimport Price
-from nautilus_trader.model.objects cimport Quantity
 
 
 cdef class DataEngine(Component):
     cdef readonly Cache _cache
     cdef readonly DataClient _default_client
     cdef readonly set[ClientId] _external_clients
-    cdef readonly object _catalog
+    cdef readonly list[ParquetDataCatalog] _catalogs
 
     cdef readonly dict[ClientId, DataClient] _clients
     cdef readonly dict[Venue, DataClient] _routing_map
@@ -58,9 +63,11 @@ cdef class DataEngine(Component):
     cdef readonly list[InstrumentId] _subscribed_synthetic_quotes
     cdef readonly list[InstrumentId] _subscribed_synthetic_trades
     cdef readonly dict[InstrumentId, list[OrderBookDelta]] _buffered_deltas_map
+    cdef readonly dict[str, SnapshotInfo] _snapshot_info
     cdef readonly bint _time_bars_build_with_no_updates
     cdef readonly bint _time_bars_timestamp_on_close
     cdef readonly str _time_bars_interval_type
+    cdef readonly dict[BarAggregation, object] _time_bars_origins # pd.Timedelta or pd.DateOffset
     cdef readonly bint _validate_data_sequence
     cdef readonly bint _buffer_deltas
 
@@ -121,6 +128,7 @@ cdef class DataEngine(Component):
     cpdef void _handle_subscribe_order_book_deltas(self, MarketDataClient client, InstrumentId instrument_id, dict metadata)  # noqa
     cpdef void _handle_subscribe_order_book(self, MarketDataClient client, InstrumentId instrument_id, dict metadata)  # noqa
     cpdef void _setup_order_book(self, MarketDataClient client, InstrumentId instrument_id, dict metadata, bint only_deltas, bint managed)  # noqa
+    cpdef void _create_new_book(self, Instrument instrument, BookType book_type)
     cpdef void _handle_subscribe_quote_ticks(self, MarketDataClient client, InstrumentId instrument_id)
     cpdef void _handle_subscribe_synthetic_quote_ticks(self, InstrumentId instrument_id)
     cpdef void _handle_subscribe_trade_ticks(self, MarketDataClient client, InstrumentId instrument_id)
@@ -160,15 +168,27 @@ cdef class DataEngine(Component):
     cpdef void _handle_quote_ticks(self, list ticks)
     cpdef void _handle_trade_ticks(self, list ticks)
     cpdef void _handle_bars(self, list bars, Bar partial)
+    cpdef dict _handle_aggregated_bars(self, list ticks, dict metadata)
+    cdef dict _handle_aggregated_bars_aux(self, list ticks, dict metadata)
 
 # -- INTERNAL -------------------------------------------------------------------------------------
 
     cpdef void _internal_update_instruments(self, list instruments)
     cpdef void _update_order_book(self, Data data)
     cpdef void _snapshot_order_book(self, TimeEvent snap_event)
+    cpdef void _publish_order_book(self, InstrumentId instrument_id, str topic)
     cpdef void _start_bar_aggregator(self, MarketDataClient client, BarType bar_type, bint await_partial)
     cpdef void _stop_bar_aggregator(self, MarketDataClient client, BarType bar_type)
     cpdef void _update_synthetics_with_quote(self, list synthetics, QuoteTick update)
     cpdef void _update_synthetic_with_quote(self, SyntheticInstrument synthetic, QuoteTick update)
     cpdef void _update_synthetics_with_trade(self, list synthetics, TradeTick update)
     cpdef void _update_synthetic_with_trade(self, SyntheticInstrument synthetic, TradeTick update)
+
+
+cdef class SnapshotInfo:
+    cdef InstrumentId instrument_id
+    cdef Venue venue
+    cdef bint is_composite
+    cdef str root
+    cdef str topic
+    cdef uint64_t interval_ms

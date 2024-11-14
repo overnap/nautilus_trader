@@ -22,13 +22,17 @@ use std::{
 use bytes::Bytes;
 use nautilus_common::{
     cache::{database::CacheDatabaseAdapter, CacheConfig},
+    custom::CustomData,
     enums::SerializationEncoding,
     runtime::get_runtime,
+    signal::Signal,
 };
 use nautilus_core::{correctness::check_slice_not_empty, nanos::UnixNanos, uuid::UUID4};
+use nautilus_cryptography::providers::install_cryptographic_provider;
 use nautilus_model::{
     accounts::any::AccountAny,
-    data::{bar::Bar, quote::QuoteTick, trade::TradeTick},
+    data::{bar::Bar, quote::QuoteTick, trade::TradeTick, DataType},
+    events::{order::OrderEventAny, position::snapshot::PositionSnapshot},
     identifiers::{
         AccountId, ClientId, ClientOrderId, ComponentId, InstrumentId, PositionId, StrategyId,
         TraderId, VenueOrderId,
@@ -39,7 +43,7 @@ use nautilus_model::{
     position::Position,
     types::currency::Currency,
 };
-use redis::{Commands, Connection, Pipeline};
+use redis::{Commands, Connection, Pipeline, RedisError};
 use ustr::Ustr;
 
 use super::{REDIS_DELIMITER, REDIS_FLUSHDB};
@@ -140,6 +144,8 @@ impl RedisCacheDatabase {
         instance_id: UUID4,
         config: CacheConfig,
     ) -> anyhow::Result<RedisCacheDatabase> {
+        install_cryptographic_provider();
+
         let db_config = config
             .database
             .as_ref()
@@ -175,7 +181,7 @@ impl RedisCacheDatabase {
         log::debug!("Awaiting task '{CACHE_WRITE}'");
         tokio::task::block_in_place(|| {
             if let Err(e) = get_runtime().block_on(&mut self.handle) {
-                log::error!("Error awaiting task '{CACHE_WRITE}': {:?}", e);
+                log::error!("Error awaiting task '{CACHE_WRITE}': {e:?}");
             }
         });
 
@@ -184,17 +190,14 @@ impl RedisCacheDatabase {
 
     pub fn flushdb(&mut self) {
         if let Err(e) = redis::cmd(REDIS_FLUSHDB).query::<()>(&mut self.con) {
-            log::error!("Failed to flush database: {:?}", e);
+            log::error!("Failed to flush database: {e:?}");
         }
     }
 
     pub fn keys(&mut self, pattern: &str) -> anyhow::Result<Vec<String>> {
-        let pattern = format!("{}{REDIS_DELIMITER}{}", self.trader_key, pattern);
+        let pattern = format!("{}{REDIS_DELIMITER}{pattern}", self.trader_key);
         log::debug!("Querying keys: {pattern}");
-        match self.con.keys(pattern) {
-            Ok(keys) => Ok(keys),
-            Err(e) => Err(e.into()),
-        }
+        Ok(scan_keys(&mut self.con, pattern)?)
     }
 
     pub fn read(&mut self, key: &str) -> anyhow::Result<Vec<Bytes>> {
@@ -259,17 +262,15 @@ async fn process_commands(
     let mut last_drain = Instant::now();
     let buffer_interval = Duration::from_millis(config.buffer_interval_ms.unwrap_or(0) as u64);
 
+    // Continue to receive and handle messages until channel is hung up
     loop {
         if last_drain.elapsed() >= buffer_interval && !buffer.is_empty() {
             drain_buffer(&mut con, &trader_key, &mut buffer);
             last_drain = Instant::now();
         } else {
-            // Continue to receive and handle messages until channel is hung up
             match rx.recv().await {
                 Some(msg) => {
                     if let DatabaseOperation::Close = msg.op_type {
-                        // Close receiver end of the channel
-                        drop(rx);
                         break;
                     }
                     buffer.push_back(msg)
@@ -336,6 +337,10 @@ fn drain_buffer(conn: &mut Connection, trader_key: &str, buffer: &mut VecDeque<D
     if let Err(e) = pipe.query::<()>(conn) {
         tracing::error!("{e}");
     }
+}
+
+fn scan_keys(con: &mut Connection, pattern: String) -> Result<Vec<String>, RedisError> {
+    Ok(con.scan_match::<String, String>(pattern)?.collect())
 }
 
 fn read_index(conn: &mut Connection, key: &str) -> anyhow::Result<Vec<Bytes>> {
@@ -664,23 +669,26 @@ pub struct RedisCacheDatabaseAdapter {
 #[allow(dead_code)] // Under development
 #[allow(unused)] // Under development
 impl CacheDatabaseAdapter for RedisCacheDatabaseAdapter {
-    fn close(&mut self) {
-        self.database.close()
+    fn close(&mut self) -> anyhow::Result<()> {
+        self.database.close();
+        Ok(())
     }
 
-    fn flush(&mut self) {
-        self.database.flushdb()
+    fn flush(&mut self) -> anyhow::Result<()> {
+        self.database.flushdb();
+        Ok(())
     }
 
-    fn load(&mut self) -> anyhow::Result<HashMap<String, Bytes>> {
+    fn load(&self) -> anyhow::Result<HashMap<String, Bytes>> {
         // self.database.load()
         Ok(HashMap::new()) // TODO
     }
 
     fn load_currencies(&mut self) -> anyhow::Result<HashMap<Ustr, Currency>> {
         let mut currencies = HashMap::new();
+        let pattern = format!("{CURRENCIES}*");
 
-        for key in self.database.keys(&format!("{CURRENCIES}*"))? {
+        for key in scan_keys(&mut self.database.con, pattern)? {
             let parts: Vec<&str> = key.as_str().rsplitn(2, ':').collect();
             let currency_code = Ustr::from(parts.first().unwrap());
             let result = self.load_currency(&currency_code)?;
@@ -698,8 +706,9 @@ impl CacheDatabaseAdapter for RedisCacheDatabaseAdapter {
 
     fn load_instruments(&mut self) -> anyhow::Result<HashMap<InstrumentId, InstrumentAny>> {
         let mut instruments = HashMap::new();
+        let pattern = format!("{INSTRUMENTS}*");
 
-        for key in self.database.keys(&format!("{INSTRUMENTS}*"))? {
+        for key in scan_keys(&mut self.database.con, pattern)? {
             let parts: Vec<&str> = key.as_str().rsplitn(2, ':').collect();
             let instrument_id = InstrumentId::from_str(parts.first().unwrap())?;
             let result = self.load_instrument(&instrument_id)?;
@@ -718,8 +727,9 @@ impl CacheDatabaseAdapter for RedisCacheDatabaseAdapter {
 
     fn load_synthetics(&mut self) -> anyhow::Result<HashMap<InstrumentId, SyntheticInstrument>> {
         let mut synthetics = HashMap::new();
+        let pattern = format!("{SYNTHETICS}*");
 
-        for key in self.database.keys(&format!("{SYNTHETICS}*"))? {
+        for key in scan_keys(&mut self.database.con, pattern)? {
             let parts: Vec<&str> = key.as_str().rsplitn(2, ':').collect();
             let instrument_id = InstrumentId::from_str(parts.first().unwrap())?;
             let synthetic = self.load_synthetic(&instrument_id)?;
@@ -731,8 +741,9 @@ impl CacheDatabaseAdapter for RedisCacheDatabaseAdapter {
 
     fn load_accounts(&mut self) -> anyhow::Result<HashMap<AccountId, AccountAny>> {
         let mut accounts = HashMap::new();
+        let pattern = format!("{ACCOUNTS}*");
 
-        for key in self.database.keys(&format!("{ACCOUNTS}*"))? {
+        for key in scan_keys(&mut self.database.con, pattern)? {
             let parts: Vec<&str> = key.as_str().rsplitn(2, ':').collect();
             let account_id = AccountId::from(*parts.first().unwrap());
             let result = self.load_account(&account_id)?;
@@ -751,8 +762,9 @@ impl CacheDatabaseAdapter for RedisCacheDatabaseAdapter {
 
     fn load_orders(&mut self) -> anyhow::Result<HashMap<ClientOrderId, OrderAny>> {
         let mut orders = HashMap::new();
+        let pattern = format!("{ORDERS}*");
 
-        for key in self.database.keys(&format!("{ORDERS}*"))? {
+        for key in scan_keys(&mut self.database.con, pattern)? {
             let parts: Vec<&str> = key.as_str().rsplitn(2, ':').collect();
             let client_order_id = ClientOrderId::from(*parts.first().unwrap());
             let result = self.load_order(&client_order_id)?;
@@ -770,8 +782,9 @@ impl CacheDatabaseAdapter for RedisCacheDatabaseAdapter {
 
     fn load_positions(&mut self) -> anyhow::Result<HashMap<PositionId, Position>> {
         let mut positions = HashMap::new();
+        let pattern = format!("{POSITIONS}*");
 
-        for key in self.database.keys(&format!("{POSITIONS}*"))? {
+        for key in scan_keys(&mut self.database.con, pattern)? {
             let parts: Vec<&str> = key.as_str().rsplitn(2, ':').collect();
             let position_id = PositionId::from(*parts.first().unwrap());
             let position = self.load_position(&position_id)?;
@@ -781,121 +794,135 @@ impl CacheDatabaseAdapter for RedisCacheDatabaseAdapter {
         Ok(positions)
     }
 
-    fn load_index_order_position(&mut self) -> anyhow::Result<HashMap<ClientOrderId, Position>> {
+    fn load_index_order_position(&self) -> anyhow::Result<HashMap<ClientOrderId, Position>> {
         todo!()
     }
 
-    fn load_index_order_client(&mut self) -> anyhow::Result<HashMap<ClientOrderId, ClientId>> {
+    fn load_index_order_client(&self) -> anyhow::Result<HashMap<ClientOrderId, ClientId>> {
         todo!()
     }
 
-    fn load_currency(&mut self, code: &Ustr) -> anyhow::Result<Option<Currency>> {
+    fn load_currency(&self, code: &Ustr) -> anyhow::Result<Option<Currency>> {
         todo!()
     }
 
     fn load_instrument(
-        &mut self,
+        &self,
         instrument_id: &InstrumentId,
     ) -> anyhow::Result<Option<InstrumentAny>> {
         todo!()
     }
 
-    fn load_synthetic(
-        &mut self,
-        instrument_id: &InstrumentId,
-    ) -> anyhow::Result<SyntheticInstrument> {
+    fn load_synthetic(&self, instrument_id: &InstrumentId) -> anyhow::Result<SyntheticInstrument> {
         todo!()
     }
 
-    fn load_account(&mut self, account_id: &AccountId) -> anyhow::Result<Option<AccountAny>> {
+    fn load_account(&self, account_id: &AccountId) -> anyhow::Result<Option<AccountAny>> {
         todo!()
     }
 
-    fn load_order(&mut self, client_order_id: &ClientOrderId) -> anyhow::Result<Option<OrderAny>> {
+    fn load_order(&self, client_order_id: &ClientOrderId) -> anyhow::Result<Option<OrderAny>> {
         todo!()
     }
 
-    fn load_position(&mut self, position_id: &PositionId) -> anyhow::Result<Position> {
+    fn load_position(&self, position_id: &PositionId) -> anyhow::Result<Position> {
         todo!()
     }
 
-    fn load_actor(&mut self, component_id: &ComponentId) -> anyhow::Result<HashMap<String, Bytes>> {
+    fn load_actor(&self, component_id: &ComponentId) -> anyhow::Result<HashMap<String, Bytes>> {
         todo!()
     }
 
-    fn delete_actor(&mut self, component_id: &ComponentId) -> anyhow::Result<()> {
+    fn delete_actor(&self, component_id: &ComponentId) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn load_strategy(
-        &mut self,
-        strategy_id: &StrategyId,
-    ) -> anyhow::Result<HashMap<String, Bytes>> {
+    fn load_strategy(&self, strategy_id: &StrategyId) -> anyhow::Result<HashMap<String, Bytes>> {
         todo!()
     }
 
-    fn delete_strategy(&mut self, component_id: &StrategyId) -> anyhow::Result<()> {
+    fn delete_strategy(&self, component_id: &StrategyId) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn add(&mut self, key: String, value: Bytes) -> anyhow::Result<()> {
+    fn add(&self, key: String, value: Bytes) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn add_currency(&mut self, currency: &Currency) -> anyhow::Result<()> {
+    fn add_currency(&self, currency: &Currency) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn add_instrument(&mut self, instrument: &InstrumentAny) -> anyhow::Result<()> {
+    fn add_instrument(&self, instrument: &InstrumentAny) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn add_synthetic(&mut self, synthetic: &SyntheticInstrument) -> anyhow::Result<()> {
+    fn add_synthetic(&self, synthetic: &SyntheticInstrument) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn add_account(&mut self, account: &AccountAny) -> anyhow::Result<()> {
+    fn add_account(&self, account: &AccountAny) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn add_order(&mut self, order: &OrderAny, client_id: Option<ClientId>) -> anyhow::Result<()> {
+    fn add_order(&self, order: &OrderAny, client_id: Option<ClientId>) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn add_position(&mut self, position: &Position) -> anyhow::Result<()> {
+    fn add_position(&self, position: &Position) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn add_order_book(&mut self, order_book: &OrderBook) -> anyhow::Result<()> {
+    fn add_position_snapshot(&self, snapshot: &PositionSnapshot) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn add_order_book(&self, order_book: &OrderBook) -> anyhow::Result<()> {
         anyhow::bail!("Saving market data for Redis cache adapter not supported")
     }
 
-    fn add_quote(&mut self, quote: &QuoteTick) -> anyhow::Result<()> {
+    fn add_quote(&self, quote: &QuoteTick) -> anyhow::Result<()> {
         anyhow::bail!("Saving market data for Redis cache adapter not supported")
     }
 
-    fn load_quotes(&mut self, instrument_id: &InstrumentId) -> anyhow::Result<Vec<QuoteTick>> {
+    fn load_quotes(&self, instrument_id: &InstrumentId) -> anyhow::Result<Vec<QuoteTick>> {
         anyhow::bail!("Loading quote data for Redis cache adapter not supported")
     }
 
-    fn add_trade(&mut self, trade: &TradeTick) -> anyhow::Result<()> {
+    fn add_trade(&self, trade: &TradeTick) -> anyhow::Result<()> {
         anyhow::bail!("Saving market data for Redis cache adapter not supported")
     }
 
-    fn load_trades(&mut self, instrument_id: &InstrumentId) -> anyhow::Result<Vec<TradeTick>> {
+    fn load_trades(&self, instrument_id: &InstrumentId) -> anyhow::Result<Vec<TradeTick>> {
         anyhow::bail!("Loading market data for Redis cache adapter not supported")
     }
 
-    fn add_bar(&mut self, bar: &Bar) -> anyhow::Result<()> {
+    fn add_bar(&self, bar: &Bar) -> anyhow::Result<()> {
         anyhow::bail!("Saving market data for Redis cache adapter not supported")
     }
 
-    fn load_bars(&mut self, instrument_id: &InstrumentId) -> anyhow::Result<Vec<Bar>> {
+    fn load_bars(&self, instrument_id: &InstrumentId) -> anyhow::Result<Vec<Bar>> {
         anyhow::bail!("Loading market data for Redis cache adapter not supported")
+    }
+
+    fn add_signal(&self, signal: &Signal) -> anyhow::Result<()> {
+        anyhow::bail!("Saving signals for Redis cache adapter not supported")
+    }
+
+    fn load_signals(&self, name: &str) -> anyhow::Result<Vec<Signal>> {
+        anyhow::bail!("Loading signals from Redis cache adapter not supported")
+    }
+
+    fn add_custom_data(&self, data: &CustomData) -> anyhow::Result<()> {
+        anyhow::bail!("Saving custom data for Redis cache adapter not supported")
+    }
+
+    fn load_custom_data(&self, data_type: &DataType) -> anyhow::Result<Vec<CustomData>> {
+        anyhow::bail!("Loading custom data from Redis cache adapter not supported")
     }
 
     fn index_venue_order_id(
-        &mut self,
+        &self,
         client_order_id: ClientOrderId,
         venue_order_id: VenueOrderId,
     ) -> anyhow::Result<()> {
@@ -903,42 +930,42 @@ impl CacheDatabaseAdapter for RedisCacheDatabaseAdapter {
     }
 
     fn index_order_position(
-        &mut self,
+        &self,
         client_order_id: ClientOrderId,
         position_id: PositionId,
     ) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn update_actor(&mut self) -> anyhow::Result<()> {
+    fn update_actor(&self) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn update_strategy(&mut self) -> anyhow::Result<()> {
+    fn update_strategy(&self) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn update_account(&mut self, account: &AccountAny) -> anyhow::Result<()> {
+    fn update_account(&self, account: &AccountAny) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn update_order(&mut self, order: &OrderAny) -> anyhow::Result<()> {
+    fn update_order(&self, order_event: &OrderEventAny) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn update_position(&mut self, position: &Position) -> anyhow::Result<()> {
+    fn update_position(&self, position: &Position) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn snapshot_order_state(&mut self, order: &OrderAny) -> anyhow::Result<()> {
+    fn snapshot_order_state(&self, order: &OrderAny) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn snapshot_position_state(&mut self, position: &Position) -> anyhow::Result<()> {
+    fn snapshot_position_state(&self, position: &Position) -> anyhow::Result<()> {
         todo!()
     }
 
-    fn heartbeat(&mut self, timestamp: UnixNanos) -> anyhow::Result<()> {
+    fn heartbeat(&self, timestamp: UnixNanos) -> anyhow::Result<()> {
         todo!()
     }
 }

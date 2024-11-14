@@ -12,36 +12,35 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 
 [dependencies]
 nautilus-core = { path = "../core" }
-anyhow = { workspace = true }
+nautilus-cryptography = { path = "../cryptography" }
 bytes = { workspace = true }
 futures = { workspace = true }
+futures-util = { workspace = true }
 pyo3 = { workspace = true, optional = true }
-pyo3-asyncio-0-21 = { workspace = true, optional = true }
+pyo3-async-runtimes = { workspace = true, optional = true }
+reqwest = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
 dashmap = "6.1.0"
-futures-util = "0.3.30"
 http = "1.1.0"
-hyper = "1.4.1"
 nonzero_ext = "0.3.0"
-reqwest = "0.12.7"
-rustls = "0.23.12"
+rustls = { version = "0.23.16", features = ["ring"] }
 tokio-rustls = "0.26.0"
-tokio-tungstenite = { version = "0.23.1", features = ["rustls-tls-native-roots"] }
-tungstenite = "0.24.0"
 
 [dev-dependencies]
+axum = { workspace = true }
 criterion = { workspace = true }
 serde_json = { workspace = true }
 rstest = { workspace = true }
-axum = "0.7.5"
-tracing-test = "0.2.5"
+tracing-test = { workspace = true }
 
 [features]
-default = ["python"]
+default = ["python", "std"]
 extension-module = [
   "pyo3/extension-module",
   "nautilus-core/extension-module",
 ]
-python = ["pyo3", "pyo3-asyncio-0-21"]
+python = ["pyo3", "pyo3-async-runtimes"]
+std = []

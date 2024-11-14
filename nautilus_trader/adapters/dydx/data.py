@@ -130,6 +130,7 @@ class DYDXDataClient(LiveMarketDataClient):
         self._ws_client = DYDXWebsocketClient(
             clock=clock,
             handler=self._handle_ws_message,
+            handler_reconnect=None,
             base_url=ws_base_url,
             loop=loop,
         )
@@ -146,6 +147,7 @@ class DYDXDataClient(LiveMarketDataClient):
         self._resubscribe_orderbook_task: asyncio.Task | None = None
         self._last_quotes: dict[InstrumentId, QuoteTick] = {}
         self._orderbook_subscriptions: set[str] = set()
+        self._resubscribe_orderbook_lock = asyncio.Lock()
 
         # Hot caches
         self._bars: dict[BarType, Bar] = {}
@@ -156,7 +158,9 @@ class DYDXDataClient(LiveMarketDataClient):
 
         self._send_all_instruments_to_data_engine()
         self._update_instruments_task = self.create_task(self._update_instruments())
-        self._resubscribe_orderbook_task = self.create_task(self._resubscribe_orderbook())
+        self._resubscribe_orderbook_task = self.create_task(
+            self._resubscribe_orderbooks_on_interval(),
+        )
 
         self._log.info("Initializing websocket connection")
         await self._ws_client.connect()
@@ -190,7 +194,7 @@ class DYDXDataClient(LiveMarketDataClient):
         except asyncio.CancelledError:
             self._log.debug("Canceled `update_instruments` task")
 
-    async def _resubscribe_orderbook(self) -> None:
+    async def _resubscribe_orderbooks_on_interval(self) -> None:
         """
         Resubscribe to the orderbook on a fixed interval `update_orderbook_interval` to
         ensure it does not become outdated.
@@ -201,12 +205,21 @@ class DYDXDataClient(LiveMarketDataClient):
                     f"Scheduled `resubscribe_order_book` to run in {self._update_orderbook_interval}s",
                 )
                 await asyncio.sleep(self._update_orderbook_interval)
-
-                for symbol in self._orderbook_subscriptions:
-                    await self._ws_client.unsubscribe_order_book(symbol)
-                    await self._ws_client.subscribe_order_book(symbol)
+                await self._resubscribe_orderbooks()
         except asyncio.CancelledError:
             self._log.debug("Canceled `resubscribe_orderbook` task")
+
+    async def _resubscribe_orderbooks(self) -> None:
+        """
+        Resubscribe to the orderbook.
+        """
+        async with self._resubscribe_orderbook_lock:
+            for symbol in self._orderbook_subscriptions:
+                await self._ws_client.unsubscribe_order_book(symbol, remove_subscription=False)
+                await self._ws_client.subscribe_order_book(
+                    symbol,
+                    bypass_subscription_validation=True,
+                )
 
     def _send_all_instruments_to_data_engine(self) -> None:
         for instrument in self._instrument_provider.get_all().values():
@@ -229,7 +242,6 @@ class DYDXDataClient(LiveMarketDataClient):
         }
         try:
             ws_message = self._decoder_ws_msg_general.decode(raw)
-
             key = (ws_message.channel, ws_message.type)
 
             if key in callbacks:
@@ -237,7 +249,7 @@ class DYDXDataClient(LiveMarketDataClient):
                 return
 
             if ws_message.type == "unsubscribed":
-                self._log.info(
+                self._log.debug(
                     f"Unsubscribed from channel {ws_message.channel} for {ws_message.id}",
                 )
 
@@ -609,17 +621,18 @@ class DYDXDataClient(LiveMarketDataClient):
             end=end,
         )
 
-        ts_init = self._clock.timestamp_ns()
+        if candles is not None:
+            ts_init = self._clock.timestamp_ns()
 
-        bars = [
-            candle.parse_to_bar(
-                bar_type=bar_type,
-                price_precision=instrument.price_precision,
-                size_precision=instrument.size_precision,
-                ts_init=ts_init,
-            )
-            for candle in candles.candles
-        ]
+            bars = [
+                candle.parse_to_bar(
+                    bar_type=bar_type,
+                    price_precision=instrument.price_precision,
+                    size_precision=instrument.size_precision,
+                    ts_init=ts_init,
+                )
+                for candle in candles.candles
+            ]
 
-        partial: Bar = bars.pop()
-        self._handle_bars(bar_type, bars, partial, correlation_id)
+            partial: Bar = bars.pop()
+            self._handle_bars(bar_type, bars, partial, correlation_id)

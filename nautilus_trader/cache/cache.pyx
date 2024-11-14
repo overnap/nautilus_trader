@@ -43,6 +43,8 @@ from nautilus_trader.core.rust.model cimport PriceType
 from nautilus_trader.core.rust.model cimport TriggerType
 from nautilus_trader.execution.messages cimport SubmitOrder
 from nautilus_trader.model.data cimport Bar
+from nautilus_trader.model.data cimport BarAggregation
+from nautilus_trader.model.data cimport BarSpecification
 from nautilus_trader.model.data cimport BarType
 from nautilus_trader.model.data cimport QuoteTick
 from nautilus_trader.model.data cimport TradeTick
@@ -1021,7 +1023,7 @@ cdef class Cache(CacheFacade):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(instrument_id.is_synthetic(), "instrument_id was not a synthetic")
+        Condition.is_true(instrument_id.is_synthetic(), "instrument_id was not a synthetic")
 
         cdef SyntheticInstrument synthetic = self._synthetics.get(instrument_id)
         if synthetic is None and self._database is not None:
@@ -1905,6 +1907,23 @@ cdef class Cache(CacheFacade):
         if self._database is not None:
             self._database.update_actor(actor)
 
+    cpdef void update_strategy(self, Strategy strategy):
+        """
+        Update the given strategy state in the cache.
+
+        Parameters
+        ----------
+        strategy : Strategy
+            The strategy to update.
+        """
+        Condition.not_none(strategy, "strategy")
+
+        self._index_strategies.add(strategy.id)
+
+        # Update database
+        if self._database is not None:
+            self._database.update_strategy(strategy)
+
     cpdef void delete_actor(self, Actor actor):
         """
         Delete the given actor from the cache.
@@ -1929,23 +1948,6 @@ cdef class Cache(CacheFacade):
         if self._database is not None:
             self._database.delete_actor(actor.id)
             self._log.debug(f"Deleted Actor(id={actor.id.value})")
-
-    cpdef void update_strategy(self, Strategy strategy):
-        """
-        Update the given strategy state in the cache.
-
-        Parameters
-        ----------
-        strategy : Strategy
-            The strategy to update.
-        """
-        Condition.not_none(strategy, "strategy")
-
-        self._index_strategies.add(strategy.id)
-
-        # Update database
-        if self._database is not None:
-            self._database.update_strategy(strategy)
 
     cpdef void delete_strategy(self, Strategy strategy):
         """
@@ -2476,9 +2478,10 @@ cdef class Cache(CacheFacade):
         list[InstrumentId]
 
         """
+        cdef InstrumentId x
         return sorted([x for x in self._instruments.keys() if venue is None or venue == x.venue])
 
-    cpdef list instruments(self, Venue venue = None):
+    cpdef list instruments(self, Venue venue = None, str underlying = None):
         """
         Return all instruments held by the cache.
 
@@ -2486,17 +2489,27 @@ cdef class Cache(CacheFacade):
         ----------
         venue : Venue, optional
             The venue filter for the query.
+        underlying : str, optional
+            The underlying root symbol for the query.
 
         Returns
         -------
         list[Instrument]
 
         """
-        return [x for x in self._instruments.values() if venue is None or venue == x.id.venue]
+        cdef Instrument x
+        return [
+            x for x in self._instruments.values()
+            if (venue is None or venue == x.id.venue) and
+            (underlying is None or (hasattr(x, "underlying") and underlying == x.underlying))
+        ]
 
     cdef timedelta _get_timedelta(self, BarType bar_type):
-        """ Helper method to get the timedelta from a BarType. """
-        return bar_type.spec.timedelta
+        # Helper method to get the timedelta from a BarType
+        cdef BarSpecification bar_spec = bar_type.spec
+        if bar_spec.aggregation == BarAggregation.MONTH:
+            return timedelta(days=bar_spec.step * 30)  # Reasonable value to fix sorting
+        return bar_spec.timedelta
 
     cpdef list bar_types(
         self,
@@ -2560,7 +2573,7 @@ cdef class Cache(CacheFacade):
 
         """
         Condition.not_none(instrument_id, "instrument_id")
-        Condition.true(instrument_id.is_synthetic(), "instrument_id was not a synthetic")
+        Condition.is_true(instrument_id.is_synthetic(), "instrument_id was not a synthetic")
 
         return self._synthetics.get(instrument_id)
 

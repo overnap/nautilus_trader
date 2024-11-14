@@ -15,21 +15,25 @@
 
 //! Python bindings from `pyo3`.
 
-#![allow(warnings)] // non-local `impl` definition, temporary allow until pyo3 upgrade
-
 pub mod clock;
+pub mod custom;
 pub mod enums;
 pub mod handler;
 pub mod logging;
 pub mod msgbus;
+pub mod signal;
 pub mod timer;
-pub mod versioning;
 
 use pyo3::prelude::*;
 
 /// Loaded as nautilus_pyo3.common
 #[pymodule]
-pub fn common(_: Python<'_>, m: &PyModule) -> PyResult<()> {
+pub fn common(_: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<crate::custom::CustomData>()?;
+    m.add_class::<crate::signal::Signal>()?;
+    m.add_class::<crate::python::clock::TestClock_Py>()?;
+    m.add_class::<crate::python::clock::LiveClock_Py>()?;
+    m.add_class::<crate::msgbus::MessageBus>()?;
     m.add_class::<crate::msgbus::MessageBus>()?;
     m.add_class::<crate::msgbus::database::BusMessage>()?;
     m.add_class::<crate::python::handler::PythonMessageHandler>()?;

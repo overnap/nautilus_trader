@@ -13,7 +13,7 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-use nautilus_core::python::{serialization::from_dict_pyo3, to_pyvalue_err};
+use nautilus_core::python::serialization::from_dict_pyo3;
 use pyo3::{
     basic::CompareOp,
     prelude::*,
@@ -21,7 +21,7 @@ use pyo3::{
 };
 use rust_decimal::prelude::ToPrimitive;
 
-use super::common::{commissions_from_hashmap, commissions_from_vec};
+use super::common::commissions_from_vec;
 use crate::{
     enums::{OrderSide, PositionSide},
     events::order::OrderFilled,
@@ -29,7 +29,6 @@ use crate::{
         ClientOrderId, InstrumentId, PositionId, StrategyId, Symbol, TradeId, TraderId, Venue,
         VenueOrderId,
     },
-    instruments::any::InstrumentAny,
     position::Position,
     python::instruments::pyobject_to_instrument_any,
     types::{currency::Currency, money::Money, price::Price, quantity::Quantity},
@@ -336,14 +335,14 @@ impl Position {
 
     #[pyo3(name = "to_dict")]
     fn py_to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new(py);
+        let dict = PyDict::new_bound(py);
         dict.set_item("type", stringify!(Position))?;
         let events_dict: PyResult<Vec<_>> = self.events.iter().map(|e| e.py_to_dict(py)).collect();
         dict.set_item("events", events_dict?)?;
         dict.set_item("trader_id", self.trader_id.to_string())?;
         dict.set_item("strategy_id", self.strategy_id.to_string())?;
         dict.set_item("instrument_id", self.instrument_id.to_string())?;
-        dict.set_item("id", self.id.to_string())?;
+        dict.set_item("position_id", self.id.to_string())?;
         dict.set_item("account_id", self.account_id.to_string())?;
         dict.set_item("opening_order_id", self.opening_order_id.to_string())?;
         match self.closing_order_id {
@@ -380,24 +379,24 @@ impl Position {
             None => dict.set_item("ts_closed", py.None())?,
         }
         dict.set_item("duration_ns", self.duration_ns.to_u64())?;
-        dict.set_item("avg_px_open", self.avg_px_open.to_f64())?;
+        dict.set_item("avg_px_open", self.avg_px_open)?;
         match self.avg_px_close {
-            Some(avg_px_close) => dict.set_item("avg_px_close", avg_px_close.to_u64())?,
+            Some(avg_px_close) => dict.set_item("avg_px_close", avg_px_close)?,
             None => dict.set_item("avg_px_close", py.None())?,
         }
-        dict.set_item("realized_return", self.realized_return.to_f64())?;
+        dict.set_item("realized_return", self.realized_return)?;
         match self.realized_pnl {
             Some(realized_pnl) => dict.set_item("realized_pnl", realized_pnl.to_string())?,
             None => dict.set_item("realized_pnl", py.None())?,
         }
-        let venue_order_ids_list = PyList::new(
+        let venue_order_ids_list = PyList::new_bound(
             py,
             self.venue_order_ids()
                 .iter()
                 .map(std::string::ToString::to_string),
         );
         dict.set_item("venue_order_ids", venue_order_ids_list)?;
-        let trade_ids_list = PyList::new(
+        let trade_ids_list = PyList::new_bound(
             py,
             self.trade_ids.iter().map(std::string::ToString::to_string),
         );

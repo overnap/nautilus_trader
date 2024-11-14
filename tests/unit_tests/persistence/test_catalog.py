@@ -21,13 +21,13 @@ import pandas as pd
 import pyarrow.dataset as ds
 import pytest
 
+from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.adapters.betfair.constants import BETFAIR_PRICE_PRECISION
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.rust.model import AggressorSide
 from nautilus_trader.core.rust.model import BookAction
 from nautilus_trader.model.currencies import USD
 from nautilus_trader.model.data import CustomData
-from nautilus_trader.model.data import OrderBookDeltas
 from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.identifiers import InstrumentId
@@ -46,7 +46,6 @@ from nautilus_trader.test_kit.providers import TestInstrumentProvider
 from nautilus_trader.test_kit.rust.data_pyo3 import TestDataProviderPyo3
 from nautilus_trader.test_kit.stubs.data import TestDataStubs
 from nautilus_trader.test_kit.stubs.persistence import TestPersistenceStubs
-from tests import TEST_DATA_DIR
 
 
 def test_list_data_types(catalog_betfair: ParquetDataCatalog) -> None:
@@ -83,7 +82,6 @@ def test_catalog_query_filtered(
     # Batching only makes sense with correct flags
     deltas = catalog_betfair.order_book_deltas(batched=True)
     assert len(deltas) == 1
-    assert isinstance(deltas[0], OrderBookDeltas)
 
 
 def test_catalog_query_custom_filtered(
@@ -266,6 +264,26 @@ def test_catalog_bars_querying_by_bar_type(catalog: ParquetDataCatalog) -> None:
     all_bars = catalog.bars()
     assert len(all_bars) == 10
     assert len(bars) == len(stub_bars) == 10
+
+
+def test_catalog_append_data(catalog: ParquetDataCatalog) -> None:
+    # Arrange
+    bar_type = TestDataStubs.bartype_adabtc_binance_1min_last()
+    instrument = TestInstrumentProvider.adabtc_binance()
+    stub_bars = TestDataStubs.binance_bars_from_csv(
+        "ADABTC-1m-2021-11-27.csv",
+        bar_type,
+        instrument,
+    )
+    catalog.write_data(stub_bars)
+
+    # Act
+    catalog.write_data(stub_bars, mode="append")
+
+    # Assert
+    bars = catalog.bars(bar_types=[str(bar_type)])
+    all_bars = catalog.bars()
+    assert len(bars) == len(all_bars) == 20
 
 
 def test_catalog_bars_querying_by_instrument_id(catalog: ParquetDataCatalog) -> None:

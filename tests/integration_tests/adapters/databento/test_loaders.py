@@ -15,6 +15,7 @@
 
 import pytest
 
+from nautilus_trader import TEST_DATA_DIR
 from nautilus_trader.adapters.databento.loaders import DatabentoDataLoader
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.model.currencies import USD
@@ -40,7 +41,6 @@ from nautilus_trader.model.instruments import FuturesContract
 from nautilus_trader.model.instruments import OptionsContract
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.objects import Quantity
-from tests import TEST_DATA_DIR
 
 
 DATABENTO_TEST_DATA_DIR = TEST_DATA_DIR / "databento"
@@ -54,7 +54,7 @@ def test_get_publishers() -> None:
     result = loader.get_publishers()
 
     # Assert
-    assert len(result) == 80  # From built-in map
+    assert len(result) == 94  # From built-in map
 
 
 def test_loader_definition_glbx_futures() -> None:
@@ -272,6 +272,90 @@ def test_loader_mbp_1_pyo3() -> None:
     assert quote.ask_size == nautilus_pyo3.Quantity.from_int(11)
     assert quote.ts_event == 1609160400006136329
     assert quote.ts_init == 1609160400006136329
+
+
+def test_loader_bbo_1s() -> None:
+    # Arrange
+    loader = DatabentoDataLoader()
+    path = DATABENTO_TEST_DATA_DIR / "bbo-1s.dbn.zst"
+
+    # Act
+    data = loader.from_dbn_file(path, as_legacy_cython=True)
+
+    # Assert
+    assert len(data) > 0
+    assert isinstance(data[0], QuoteTick)
+    quote = data[0]
+    assert quote.instrument_id == InstrumentId.from_str("ESM4.GLBX")
+    assert quote.bid_price == Price.from_str("5199.50")
+    assert quote.ask_price == Price.from_str("5199.75")
+    assert quote.bid_size == Quantity.from_int(26)
+    assert quote.ask_size == Quantity.from_int(23)
+    assert quote.ts_event == 1715248801000000000
+    assert quote.ts_init == 1715248801000000000
+
+
+def test_loader_bbo_1s_pyo3() -> None:
+    # Arrange
+    loader = DatabentoDataLoader()
+    path = DATABENTO_TEST_DATA_DIR / "bbo-1s.dbn.zst"
+
+    # Act
+    data = loader.from_dbn_file(path, as_legacy_cython=False)
+
+    # Assert
+    assert len(data) > 0
+    assert isinstance(data[0], nautilus_pyo3.QuoteTick)
+    quote = data[0]
+    assert quote.instrument_id == nautilus_pyo3.InstrumentId.from_str("ESM4.GLBX")
+    assert quote.bid_price == nautilus_pyo3.Price.from_str("5199.50")
+    assert quote.ask_price == nautilus_pyo3.Price.from_str("5199.75")
+    assert quote.bid_size == nautilus_pyo3.Quantity.from_int(26)
+    assert quote.ask_size == nautilus_pyo3.Quantity.from_int(23)
+    assert quote.ts_event == 1715248801000000000
+    assert quote.ts_init == 1715248801000000000
+
+
+def test_loader_bbo_1m() -> None:
+    # Arrange
+    loader = DatabentoDataLoader()
+    path = DATABENTO_TEST_DATA_DIR / "bbo-1m.dbn.zst"
+
+    # Act
+    data = loader.from_dbn_file(path, as_legacy_cython=True)
+
+    # Assert
+    assert len(data) > 0
+    assert isinstance(data[0], QuoteTick)
+    quote = data[0]
+    assert quote.instrument_id == InstrumentId.from_str("ESM4.GLBX")
+    assert quote.bid_price == Price.from_str("5199.50")
+    assert quote.ask_price == Price.from_str("5199.75")
+    assert quote.bid_size == Quantity.from_int(33)
+    assert quote.ask_size == Quantity.from_int(17)
+    assert quote.ts_event == 1715248800000000000
+    assert quote.ts_init == 1715248800000000000
+
+
+def test_loader_bbo_1m_pyo3() -> None:
+    # Arrange
+    loader = DatabentoDataLoader()
+    path = DATABENTO_TEST_DATA_DIR / "bbo-1m.dbn.zst"
+
+    # Act
+    data = loader.from_dbn_file(path, as_legacy_cython=False)
+
+    # Assert
+    assert len(data) > 0
+    assert isinstance(data[0], nautilus_pyo3.QuoteTick)
+    quote = data[0]
+    assert quote.instrument_id == nautilus_pyo3.InstrumentId.from_str("ESM4.GLBX")
+    assert quote.bid_price == nautilus_pyo3.Price.from_str("5199.50")
+    assert quote.ask_price == nautilus_pyo3.Price.from_str("5199.75")
+    assert quote.bid_size == nautilus_pyo3.Quantity.from_int(33)
+    assert quote.ask_size == nautilus_pyo3.Quantity.from_int(17)
+    assert quote.ts_event == 1715248800000000000
+    assert quote.ts_init == 1715248800000000000
 
 
 def test_loader_mbp_10() -> None:

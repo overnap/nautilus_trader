@@ -22,6 +22,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from pathlib import Path
 
 import msgspec
 
@@ -170,6 +171,17 @@ class NautilusKernel:
 
         if not is_logging_initialized():
             if not logging.bypass_logging:
+                if logging.clear_log_file and logging.log_directory and logging.log_file_name:
+                    file_path = Path(
+                        logging.log_directory,
+                        f"{logging.log_file_name}.{'log' if logging.log_file_format is None else 'json'}",
+                    )
+
+                    if file_path.exists():
+                        # Truncate log file to zero length and reset metadata
+                        file_path.touch()
+                        file_path.open("w").close()
+
                 if logging.use_pyo3:
                     set_logging_pyo3(True)
                     # Initialize tracing for async Rust
@@ -180,6 +192,7 @@ class NautilusKernel:
                         trader_id=nautilus_pyo3.TraderId(self._trader_id.value),
                         instance_id=nautilus_pyo3.UUID4(self._instance_id.value),
                         level_stdout=nautilus_pyo3.LogLevel(logging.log_level),
+                        level_file=nautilus_pyo3.LogLevel(logging.log_level_file or "OFF"),
                         directory=logging.log_directory,
                         file_name=logging.log_file_name,
                         file_format=logging.log_file_format,
@@ -456,14 +469,16 @@ class NautilusKernel:
             self._setup_streaming(config=config.streaming)
 
         # Set up data catalog
-        self._catalog: ParquetDataCatalog | None = None
-        if config.catalog:
-            self._catalog = ParquetDataCatalog(
-                path=config.catalog.path,
-                fs_protocol=config.catalog.fs_protocol,
-                fs_storage_options=config.catalog.fs_storage_options,
-            )
-            self._data_engine.register_catalog(catalog=self._catalog)
+        self._catalogs: list[ParquetDataCatalog] = []
+        if config.catalogs:
+            for catalog_config in config.catalogs:
+                catalog = ParquetDataCatalog(
+                    path=catalog_config.path,
+                    fs_protocol=catalog_config.fs_protocol,
+                    fs_storage_options=catalog_config.fs_storage_options,
+                )
+                self._catalogs.append(catalog)
+                self._data_engine.register_catalog(catalog=catalog)
 
         # Create importable actors
         for actor_config in config.actors:
@@ -515,9 +530,16 @@ class NautilusKernel:
         path = f"{config.catalog_path}/{self._environment.value}/{self.instance_id}"
         self._writer = StreamingFeatherWriter(
             path=path,
+            cache=self._cache,
+            clock=self._clock,
             fs_protocol=config.fs_protocol,
             flush_interval_ms=config.flush_interval_ms,
             include_types=config.include_types,
+            rotation_mode=config.rotation_mode,
+            max_file_size=config.max_file_size,
+            rotation_interval=config.rotation_interval,
+            rotation_time=config.rotation_time,
+            rotation_timezone=config.rotation_timezone,
         )
         self._trader.subscribe("*", self._writer.write)
         self._log.info(f"Writing data & events to {path}")
@@ -816,16 +838,16 @@ class NautilusKernel:
         return self._writer
 
     @property
-    def catalog(self) -> ParquetDataCatalog | None:
+    def catalogs(self) -> list[ParquetDataCatalog]:
         """
-        Return the kernels data catalog.
+        Return the kernel's list of data catalogs.
 
         Returns
         -------
-        ParquetDataCatalog or ``None``
+        list[ParquetDataCatalog]
 
         """
-        return self._catalog
+        return self._catalogs
 
     def get_log_guard(self) -> nautilus_pyo3.LogGuard | LogGuard | None:
         """

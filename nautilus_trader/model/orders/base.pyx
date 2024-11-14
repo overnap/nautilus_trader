@@ -277,6 +277,17 @@ cdef class Order:
         """
         return self.type_string_c()
 
+    cpdef str tif_string(self):
+        """
+        Return the orders time in force as a string.
+
+        Returns
+        -------
+        str
+
+        """
+        return self.tif_string_c()
+
     cpdef str info(self):
         """
         Return a summary description of the order.
@@ -984,7 +995,7 @@ cdef class Order:
                 self._fsm.trigger(self._previous_status)
             self._updated(event)
         elif isinstance(event, OrderTriggered):
-            Condition.true(
+            Condition.is_true(
                 (
                     self.order_type == OrderType.STOP_LIMIT
                     or self.order_type == OrderType.TRAILING_STOP_LIMIT

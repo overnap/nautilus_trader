@@ -16,6 +16,8 @@
 //! Instrument definitions for the trading domain model.
 
 pub mod any;
+pub mod betting;
+pub mod binary_option;
 pub mod crypto_future;
 pub mod crypto_perpetual;
 pub mod currency_pair;
