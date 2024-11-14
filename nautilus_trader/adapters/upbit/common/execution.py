@@ -852,16 +852,17 @@ class UpbitExecutionClient(LiveExecutionClient):
                 ts_event=millis_to_nanos(order_msg.trade_timestamp),
             )
         elif order_msg.state == UpbitOrderStatus.DONE:
-            self.generate_order_updated(
-                strategy_id=strategy_id,
-                instrument_id=instrument_id,
-                client_order_id=client_order_id,
-                venue_order_id=venue_order_id,
-                quantity=Quantity.from_str(str(order_msg.volume)),
-                price=Price.from_str(str(order_msg.avg_price)),
-                trigger_price=None,
-                ts_event=millis_to_nanos(order_msg.timestamp),
-            )
+            # self.generate_order_updated(
+            #     strategy_id=strategy_id,
+            #     instrument_id=instrument_id,
+            #     client_order_id=client_order_id,
+            #     venue_order_id=venue_order_id,
+            #     quantity=Quantity.from_str(str(order_msg.volume)),
+            #     price=Price.from_str(str(order_msg.avg_price)),
+            #     trigger_price=None,
+            #     ts_event=millis_to_nanos(order_msg.timestamp),
+            # )
+            pass
         elif order_msg.state == UpbitOrderStatus.CANCEL:
             self.generate_order_canceled(
                 strategy_id=strategy_id,

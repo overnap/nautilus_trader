@@ -15,7 +15,7 @@
 # -------------------------------------------------------------------------------------------------
 import asyncio
 
-from nautilus_trader.core.rust.model import PriceType
+from nautilus_trader.core.rust.model import PriceType, TimeInForce
 
 from nautilus_trader.adapters.upbit.common.types import UpbitBar
 from nautilus_trader.adapters.upbit.config import UpbitDataClientConfig, UpbitExecClientConfig
@@ -88,6 +88,7 @@ from nautilus_trader.model.identifiers import InstrumentId, Symbol
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.objects import Currency, Money, AccountBalance, Quantity, Price
 from nautilus_trader.model.orders import MarketOrder
+from nautilus_trader.model.orders.limit import LimitOrder
 from nautilus_trader.portfolio import PortfolioFacade
 from nautilus_trader.trading.strategy import Strategy
 from tests.integration_tests.adapters.conftest import portfolio
@@ -110,6 +111,7 @@ class UpbitStochasticsConfig(StrategyConfig, frozen=True):
     ma_period_k: PositiveInt
     ma_period_d: PositiveInt
 
+    trade_size: Decimal = Decimal("10")
     close_positions_on_stop: bool = True
 
 
@@ -152,6 +154,7 @@ class UpbitStochastics(Strategy):
 
         self.close_positions_on_stop = config.close_positions_on_stop
         self.instrument: Instrument = None
+        self.trade_size = Decimal(config.trade_size)
 
         self.ts_trade = 0
         self.ts_log = 0
@@ -171,17 +174,22 @@ class UpbitStochastics(Strategy):
         self.register_indicator_for_bars(self.bar_type, self.stochastics)
         self.register_indicator_for_bars(self.index_bar_type, self.index_stochastics)
 
+        self.log.info(
+            f"Start with {self.portfolio.account(UPBIT_VENUE).balance(self.instrument.quote_currency)}",
+            LogColor.MAGENTA,
+        )
+
         # Early subscription
         self.subscribe_quote_ticks(self.instrument_id)
 
         # Get historical data
         self.request_bars(
             self.bar_type,
-            start=self._clock.utc_now() - pd.Timedelta(hours=2),
+            start=self._clock.utc_now() - pd.Timedelta(minutes=30),
         )
         self.request_bars(
             self.index_bar_type,
-            start=self._clock.utc_now() - pd.Timedelta(hours=2),
+            start=self._clock.utc_now() - pd.Timedelta(minutes=30),
         )
 
         async def lazy_subscription():
@@ -362,31 +370,40 @@ class UpbitStochastics(Strategy):
         """
         Users simple buy method (example).
         """
-        balance: AccountBalance = self.portfolio.account(UPBIT_VENUE).balance(
-            self.instrument.quote_currency
+        # balance: AccountBalance = self.portfolio.account(UPBIT_VENUE).balance(
+        #     self.instrument.quote_currency
+        # )
+        # if balance is not None and balance.free.as_double() > 1:
+        # order: MarketOrder = self.order_factory.market(
+        #     instrument_id=self.instrument_id,
+        #     order_side=OrderSide.BUY,
+        #     quantity=Quantity.from_str(
+        #         str(
+        #             self.instrument.make_price(
+        #                 (balance.free.as_decimal() - 1)
+        #                 * (
+        #                     1
+        #                     - UpbitSymbol(self.instrument.symbol.value)
+        #                     .calculate_upbit_fee()
+        #                     .value
+        #                 )
+        #             ).as_decimal()
+        #         )
+        #     ),
+        #     quote_quantity=True,
+        #     # time_in_force=TimeInForce.FOK,
+        # )
+        order: LimitOrder = self.order_factory.limit(
+            instrument_id=self.instrument_id,
+            order_side=OrderSide.BUY,
+            quantity=self.instrument.make_qty(self.trade_size),
+            price=self.instrument.make_price(
+                self.cache.price(self.instrument_id, PriceType.BID).as_double()
+            ),
+            time_in_force=TimeInForce.FOK,
         )
-        if balance is not None and balance.free.as_double() > 1:
-            order: MarketOrder = self.order_factory.market(
-                instrument_id=self.instrument_id,
-                order_side=OrderSide.BUY,
-                quantity=Quantity.from_str(
-                    str(
-                        self.instrument.make_price(
-                            (balance.free.as_decimal() - 1)
-                            * (
-                                1
-                                - UpbitSymbol(self.instrument.symbol.value)
-                                .calculate_upbit_fee()
-                                .value
-                            )
-                        ).as_decimal()
-                    )
-                ),
-                quote_quantity=True,
-                # time_in_force=TimeInForce.FOK,
-            )
 
-            self.submit_order(order)
+        self.submit_order(order)
 
     def sell(self) -> None:
         """
@@ -399,7 +416,7 @@ class UpbitStochastics(Strategy):
             order: MarketOrder = self.order_factory.market(
                 instrument_id=self.instrument_id,
                 order_side=OrderSide.SELL,
-                quantity=self.instrument.make_qty(balance.free.as_decimal()),
+                quantity=self.instrument.make_qty(balance.free.as_double()),
                 # time_in_force=TimeInForce.FOK,
             )
 
@@ -496,7 +513,7 @@ class UpbitStochastics(Strategy):
 # Configure the trading node
 config_node = TradingNodeConfig(
     trader_id=TraderId("TESTER-001"),
-    logging=LoggingConfig(log_level="DEBUG"),
+    logging=LoggingConfig(log_level="INFO"),
     exec_engine=LiveExecEngineConfig(
         reconciliation=True,
         reconciliation_lookback_mins=1440,
@@ -514,7 +531,6 @@ config_node = TradingNodeConfig(
         # encoding="json",
         streams_prefix="quoters",
         use_instance_id=False,
-        timestamps_as_iso8601=True,
         # types_filter=[QuoteTick],
         autotrim_mins=1,
         heartbeat_interval_secs=1,
@@ -549,10 +565,11 @@ strat_config = UpbitStochasticsConfig(
     index_instrument_id=InstrumentId.from_str("KRW-BTC.UPBIT"),
     index_bar_type=BarType.from_str("KRW-BTC.UPBIT-1-SECOND-LAST-EXTERNAL"),
     period_k=600,
-    period_d=15,
+    period_d=10,
     ma_type=MovingAverageType.EXPONENTIAL,
-    ma_period_k=15,
-    ma_period_d=15,
+    ma_period_k=10,
+    ma_period_d=5,
+    trade_size=Decimal("10"),
     close_positions_on_stop=True,
     order_id_tag="001",
 )

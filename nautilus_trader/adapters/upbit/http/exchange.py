@@ -1,3 +1,5 @@
+from datetime import tzinfo
+
 import msgspec.json
 from nautilus_trader.core.nautilus_pyo3 import HttpMethod
 
@@ -128,17 +130,17 @@ class UpbitOrdersHttp(UpbitHttpEndpoint):
         limit: int = 100
         order_by: UpbitOrderBy = UpbitOrderBy.DESC
         # TODO: 나중에 구현할 필요가 있을 수도 있음. 지금 인터페이스로는 크게 필요 없어 보임.
-        states: tuple[UpbitOrderStatus] = (UpbitOrderStatus.WAIT, UpbitOrderStatus.WATCH)
+        # states: tuple[UpbitOrderStatus] = (UpbitOrderStatus.WAIT, UpbitOrderStatus.WATCH)
         page: int = 1
 
     class GetClosedParameters(msgspec.Struct, omit_defaults=True, frozen=True):
         market: str
         start_time: str | None = None
         end_time: str | None = None
-        limit: int = 1000
+        limit: int = 100
         order_by: UpbitOrderBy = UpbitOrderBy.DESC
         # TODO: 나중에 구현할 필요가 있을 수도 있음. 지금 인터페이스로는 크게 필요 없어 보임.
-        states: tuple[UpbitOrderStatus] = (UpbitOrderStatus.CANCEL, UpbitOrderStatus.DONE)
+        # states: tuple[UpbitOrderStatus] = (UpbitOrderStatus.CANCEL, UpbitOrderStatus.DONE)
 
     async def post(self, params: PostParameters) -> UpbitOrder:
         if (
@@ -279,7 +281,9 @@ class UpbitExchangeHttpAPI:
             return await self._endpoint_orders.get_closed(
                 params=self._endpoint_orders.GetClosedParameters(
                     market=str(market),
-                    start_time=start_time.isoformat() if start_time else None,
-                    end_time=end_time.isoformat() if end_time else None,
+                    start_time=(
+                        start_time.isoformat() + "+00:00" if start_time is not None else None
+                    ),
+                    end_time=(end_time.isoformat() + "+00:00" if end_time is not None else None),
                 )
             )
