@@ -875,11 +875,16 @@ class UpbitExecutionClient(LiveExecutionClient):
     def _handle_asset_update(self, raw: bytes) -> None:
         asset_msg = self._decoder_asset_update.decode(raw)
 
+        # self._log.info(
+        #     f"[Account Websocket] {asset_msg.asset_timestamp} and {asset_msg.timestamp} : "
+        #     f"{[asset.parse_to_account_balance() for asset in asset_msg.assets]}",
+        #     LogColor.MAGENTA,
+        # )
         self.generate_account_state(
             balances=[asset.parse_to_account_balance() for asset in asset_msg.assets],
             margins=[],
             reported=True,
-            ts_event=millis_to_nanos(asset_msg.asset_timestamp),
+            ts_event=millis_to_nanos(asset_msg.timestamp),
         )
 
 

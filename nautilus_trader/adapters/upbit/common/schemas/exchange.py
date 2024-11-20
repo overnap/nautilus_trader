@@ -83,7 +83,8 @@ class UpbitAsset(msgspec.Struct, frozen=True):
         currency = Currency.from_str(self.currency)
         free = Decimal(self.balance)
         locked = Decimal(self.locked)
-        total: Decimal = free + locked
+        total = Decimal(free + locked)
+
         return AccountBalance(
             total=Money(total, currency),
             locked=Money(locked, currency),
@@ -122,8 +123,8 @@ class UpbitTrade(msgspec.Struct, frozen=True):
         quote = self.market.split("-")[0]
         commission = Money(
             UpbitSymbol(self.market).calculate_upbit_fee().value
-            * Decimal(str(self.price))
-            * Decimal(str(self.volume)),
+            * Decimal(self.price)
+            * Decimal(self.volume),
             Currency.from_str(quote),
         )
 
@@ -305,9 +306,9 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             trigger_type=trigger_type,
             trailing_offset=trailing_offset,
             trailing_offset_type=trailing_offset_type,
-            quantity=Quantity.from_str(str(self.volume if self.volume else self.price)),
-            filled_qty=Quantity.from_str(str(self.executed_volume if self.executed_volume else 0)),
-            avg_px=Decimal(str(self.avg_price)),
+            quantity=Quantity(self.volume if self.volume else self.price, 8),
+            filled_qty=Quantity(self.executed_volume if self.executed_volume else 0.0, 8),
+            avg_px=Decimal(self.avg_price),
             post_only=post_only,
             reduce_only=reduce_only,
             ts_accepted=millis_to_nanos(self.order_timestamp),
@@ -319,8 +320,8 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
     def calculate_commission(self):
         return Money(
             UpbitSymbol(self.code).calculate_upbit_fee().value
-            * Decimal(str(self.price))
-            * Decimal(str(self.volume)),
+            * Decimal(f"{self.price:.8f}")
+            * Decimal(f"{self.volume:.8f}"),
             Currency.from_str(self.code.split("-")[0]),
         )
 
@@ -335,7 +336,7 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
     ) -> FillReport:
         if self.state != UpbitOrderStatus.TRADE:
             raise ValueError(
-                f'Only `state == "trade"` order can be parsed into trade, but "{self.state}"'
+                f'Only `state == "trade"` order can be parsed into trade, but was "{self.state}"'
             )
 
         venue_position_id: PositionId | None
@@ -354,8 +355,8 @@ class UpbitWebSocketOrder(msgspec.Struct, frozen=True):
             venue_position_id=venue_position_id,
             trade_id=TradeId(self.trade_uuid),
             order_side=enum_parser.parse_upbit_order_side(self.ask_bid),
-            last_qty=Quantity.from_str(self.volume),
-            last_px=Price.from_str(self.price),
+            last_qty=Quantity(self.volume, 8),
+            last_px=Price(self.price, 8),
             liquidity_side=liquidity_side,
             ts_event=millis_to_nanos(self.trade_timestamp),
             commission=self.calculate_commission(),
@@ -371,9 +372,13 @@ class UpbitWebSocketAssetUnit(msgspec.Struct, frozen=True):
 
     def parse_to_account_balance(self) -> AccountBalance:
         currency = Currency.from_str(self.currency)
-        free = Decimal(self.balance)
-        locked = Decimal(self.locked)
-        total: Decimal = free + locked
+        free = Decimal(f"{self.balance:.8f}")
+        locked = Decimal(f"{self.locked:.8f}")
+        total = Decimal(free + locked)
+        print(
+            f"[parse to account balance] {currency=} {free=} {locked=} {total=} {self.balance=} {self.locked=}"
+        )
+
         return AccountBalance(
             total=Money(total, currency),
             locked=Money(locked, currency),

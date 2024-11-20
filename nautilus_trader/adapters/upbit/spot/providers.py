@@ -259,11 +259,9 @@ class UpbitInstrumentProvider(InstrumentProvider):
                     price_increment=Price.from_str(order_precision),
                     size_increment=Quantity.from_str("0.00000001"),
                     lot_size=Quantity.from_str("0.00000001"),
-                    max_quantity=Quantity.from_str("4294967296"),  # TODO: 너무 작을 수 있음.
+                    max_quantity=Quantity(QUANTITY_MAX, 8),
                     min_quantity=Quantity.from_str("0.00000001"),
-                    max_notional=Money(
-                        "4294967296", currency=quote_currency
-                    ),  # TODO: 너무 작을 수 있음.
+                    max_notional=Money("1000000000", currency=quote_currency),
                     min_notional=Money("5000", currency=quote_currency),
                     max_price=Price.from_str("4294967296"),
                     min_price=Price.from_str(order_precision),
@@ -286,11 +284,9 @@ class UpbitInstrumentProvider(InstrumentProvider):
                     price_increment=Price.from_str("0.00000001"),
                     size_increment=Quantity.from_str("0.00000001"),
                     lot_size=Quantity.from_str("0.00000001"),
-                    max_quantity=Quantity.from_str("4294967296"),  # TODO: 너무 작을 수 있음.
+                    max_quantity=Quantity(QUANTITY_MAX, 8),
                     min_quantity=Quantity.from_str("0.00000001"),
-                    max_notional=Money(
-                        "4294967296", currency=quote_currency
-                    ),  # TODO: 너무 작을 수 있음.
+                    max_notional=Money("20", currency=quote_currency),
                     min_notional=Money("0.00005", currency=quote_currency),
                     max_price=Price.from_str("4294967296"),
                     min_price=Price.from_str("0.00000001"),
@@ -336,9 +332,9 @@ class UpbitInstrumentProvider(InstrumentProvider):
                     price_increment=Price.from_str(order_precision),
                     size_increment=Quantity.from_str("0.00000001"),
                     lot_size=Quantity.from_str("0.00000001"),
-                    max_quantity=Quantity.from_str("4294967296"),
+                    max_quantity=Quantity(QUANTITY_MAX, 8),
                     min_quantity=Quantity.from_str("0.00000001"),
-                    max_notional=Money("4294967296", currency=quote_currency),
+                    max_notional=Money("1000000", currency=quote_currency),
                     min_notional=Money("0.5", currency=quote_currency),
                     max_price=Price.from_str("4294967296"),
                     min_price=Price.from_str(order_precision),
@@ -360,7 +356,7 @@ class UpbitInstrumentProvider(InstrumentProvider):
             self._log.debug(f"Added instrument {instrument.id}.")
         except ValueError as e:
             if self._log_warnings:
-                self._log.warning(f"Unable to parse instrument {code_info.symbol}: {e}.")
+                self._log.warning(f"Unable to parse instrument {code_info.market}: {e}.")
 
 
 if __name__ == "__main__":

@@ -85,6 +85,8 @@ from nautilus_trader.model.data import QuoteTick
 from nautilus_trader.model.data import TradeTick
 from nautilus_trader.model.enums import OrderSide
 from nautilus_trader.model.identifiers import InstrumentId, Symbol
+
+from nautilus_trader.model.events import AccountState, OrderEvent
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.objects import Currency, Money, AccountBalance, Quantity, Price
 from nautilus_trader.model.orders import MarketOrder
@@ -102,8 +104,8 @@ class UpbitStochasticsConfig(StrategyConfig, frozen=True):
     instrument_id: InstrumentId
     bar_type: BarType
 
-    index_instrument_id: InstrumentId
-    index_bar_type: BarType
+    # index_instrument_id: InstrumentId
+    # index_bar_type: BarType
 
     period_k: PositiveInt
     period_d: PositiveInt
@@ -140,17 +142,17 @@ class UpbitStochastics(Strategy):
         # Configuration
         self.instrument_id = config.instrument_id
         self.bar_type = config.bar_type
-        self.index_instrument_id = config.index_instrument_id
-        self.index_bar_type = config.index_bar_type
+        # self.index_instrument_id = config.index_instrument_id
+        # self.index_bar_type = config.index_bar_type
 
         # Create the indicators for the strategy
         self.stochastics = Stochastics(config.period_k, config.period_d)
         self.slow_k = MovingAverageFactory.create(config.ma_period_k, config.ma_type)
         self.slow_d = MovingAverageFactory.create(config.ma_period_d, config.ma_type)
 
-        self.index_stochastics = Stochastics(config.period_k, config.period_d)
-        self.index_slow_k = MovingAverageFactory.create(config.ma_period_k, config.ma_type)
-        self.index_slow_d = MovingAverageFactory.create(config.ma_period_d, config.ma_type)
+        # self.index_stochastics = Stochastics(config.period_k, config.period_d)
+        # self.index_slow_k = MovingAverageFactory.create(config.ma_period_k, config.ma_type)
+        # self.index_slow_d = MovingAverageFactory.create(config.ma_period_d, config.ma_type)
 
         self.close_positions_on_stop = config.close_positions_on_stop
         self.instrument: Instrument = None
@@ -164,20 +166,15 @@ class UpbitStochastics(Strategy):
         Actions to be performed on strategy start.
         """
         self.instrument = self.cache.instrument(self.instrument_id)
-        self.index_instrument = self.cache.instrument(self.instrument_id)
+        # self.index_instrument = self.cache.instrument(self.instrument_id)
         if self.instrument is None:
             self.log.error(f"Could not find instrument for {self.instrument_id}")
             self.stop()
             return
 
-        # Register the indicators for updating      w
+        # Register the indicators for updating
         self.register_indicator_for_bars(self.bar_type, self.stochastics)
-        self.register_indicator_for_bars(self.index_bar_type, self.index_stochastics)
-
-        self.log.info(
-            f"Start with {self.portfolio.account(UPBIT_VENUE).balance(self.instrument.quote_currency)}",
-            LogColor.MAGENTA,
-        )
+        # self.register_indicator_for_bars(self.index_bar_type, self.index_stochastics)
 
         # Early subscription
         self.subscribe_quote_ticks(self.instrument_id)
@@ -187,10 +184,10 @@ class UpbitStochastics(Strategy):
             self.bar_type,
             start=self._clock.utc_now() - pd.Timedelta(minutes=30),
         )
-        self.request_bars(
-            self.index_bar_type,
-            start=self._clock.utc_now() - pd.Timedelta(minutes=30),
-        )
+        # self.request_bars(
+        #     self.index_bar_type,
+        #     start=self._clock.utc_now() - pd.Timedelta(minutes=30),
+        # )
 
         async def lazy_subscription():
             while True:
@@ -201,14 +198,14 @@ class UpbitStochastics(Strategy):
                     break
                 else:
                     await asyncio.sleep(0.1)
-            while True:
-                # Wait until historical data is fetched completely
-                if self.cache.has_bars(self.index_bar_type):
-                    # Subscribe to live data
-                    self.subscribe_bars(self.index_bar_type)
-                    break
-                else:
-                    await asyncio.sleep(0.1)
+            # while True:
+            #     # Wait until historical data is fetched completely
+            #     if self.cache.has_bars(self.index_bar_type):
+            #         # Subscribe to live data
+            #         self.subscribe_bars(self.index_bar_type)
+            #         break
+            #     else:
+            #         await asyncio.sleep(0.1)
 
         asyncio.get_event_loop().create_task(lazy_subscription())
 
@@ -341,7 +338,7 @@ class UpbitStochastics(Strategy):
                     )
                     self.ts_trade = self.clock.timestamp_ns()
 
-            delay = int(1e9) * 5
+            delay = int(1e9) * 10
             if self.ts_log + delay <= self.clock.timestamp_ns():
                 self.log.info(
                     f"K: {self.slow_k.value}, D: {self.slow_d.value}, "
@@ -350,21 +347,22 @@ class UpbitStochastics(Strategy):
                 )
                 self.ts_log = self.clock.timestamp_ns()
         else:
-            self.index_slow_k.update_raw(self.index_stochastics.value_d)
-            if not self.index_slow_k.initialized:
-                self.log.info(
-                    f"Waiting for indicators to warm up [{self.cache.bar_count(self.bar_type)}]",
-                    color=LogColor.BLUE,
-                )
-                return
-
-            self.index_slow_d.update_raw(self.index_slow_k.value)
-            if not self.index_slow_d.initialized:
-                self.log.info(
-                    f"Waiting for indicators to warm up [{self.cache.bar_count(self.bar_type)}]",
-                    color=LogColor.BLUE,
-                )
-                return
+            pass
+            # self.index_slow_k.update_raw(self.index_stochastics.value_d)
+            # if not self.index_slow_k.initialized:
+            #     self.log.info(
+            #         f"Waiting for indicators to warm up [{self.cache.bar_count(self.bar_type)}]",
+            #         color=LogColor.BLUE,
+            #     )
+            #     return
+            #
+            # self.index_slow_d.update_raw(self.index_slow_k.value)
+            # if not self.index_slow_d.initialized:
+            #     self.log.info(
+            #         f"Waiting for indicators to warm up [{self.cache.bar_count(self.bar_type)}]",
+            #         color=LogColor.BLUE,
+            #     )
+            #     return
 
     def buy(self) -> None:
         """
@@ -398,7 +396,7 @@ class UpbitStochastics(Strategy):
             order_side=OrderSide.BUY,
             quantity=self.instrument.make_qty(self.trade_size),
             price=self.instrument.make_price(
-                self.cache.price(self.instrument_id, PriceType.BID).as_double()
+                self.cache.price(self.instrument_id, PriceType.BID).as_double() + 1
             ),
             time_in_force=TimeInForce.FOK,
         )
@@ -455,7 +453,7 @@ class UpbitStochastics(Strategy):
 
         # Unsubscribe from data
         self.unsubscribe_bars(self.bar_type)
-        self.unsubscribe_bars(self.index_bar_type)
+        # self.unsubscribe_bars(self.index_bar_type)
         self.unsubscribe_quote_ticks(self.instrument_id)
         # self.unsubscribe_trade_ticks(self.instrument_id)
         # self.unsubscribe_ticker(self.instrument_id)
@@ -470,9 +468,9 @@ class UpbitStochastics(Strategy):
         self.stochastics.reset()
         self.slow_d.reset()
         self.slow_k.reset()
-        self.index_stochastics.reset()
-        self.index_slow_k.reset()
-        self.index_slow_d.reset()
+        # self.index_stochastics.reset()
+        # self.index_slow_k.reset()
+        # self.index_slow_d.reset()
 
     def on_save(self) -> dict[str, bytes]:
         """
@@ -523,7 +521,7 @@ config_node = TradingNodeConfig(
     ),
     cache=CacheConfig(
         database=DatabaseConfig(),
-        buffer_interval_ms=100,
+        # buffer_interval_ms=100,
         flush_on_start=True,
     ),
     message_bus=MessageBusConfig(
@@ -531,9 +529,9 @@ config_node = TradingNodeConfig(
         # encoding="json",
         streams_prefix="quoters",
         use_instance_id=False,
-        # types_filter=[QuoteTick],
-        autotrim_mins=1,
-        heartbeat_interval_secs=1,
+        # types_filter=[QuoteTick, AccountState, OrderEvent],
+        # autotrim_mins=240,
+        # heartbeat_interval_secs=1,
     ),
     data_clients={
         "UPBIT": UpbitDataClientConfig(
@@ -543,7 +541,7 @@ config_node = TradingNodeConfig(
     exec_clients={
         "UPBIT": UpbitExecClientConfig(
             instrument_provider=InstrumentProviderConfig(load_all=True),
-            max_retries=3,
+            max_retries=1,
             retry_delay=1.0,
         ),
     },
@@ -562,13 +560,13 @@ strat_config = UpbitStochasticsConfig(
     instrument_id=InstrumentId.from_str("KRW-DOGE.UPBIT"),
     external_order_claims=[InstrumentId.from_str("KRW-DOGE.UPBIT")],
     bar_type=BarType.from_str("KRW-DOGE.UPBIT-1-SECOND-LAST-EXTERNAL"),
-    index_instrument_id=InstrumentId.from_str("KRW-BTC.UPBIT"),
-    index_bar_type=BarType.from_str("KRW-BTC.UPBIT-1-SECOND-LAST-EXTERNAL"),
-    period_k=600,
-    period_d=10,
+    # index_instrument_id=InstrumentId.from_str("KRW-BTC.UPBIT"),
+    # index_bar_type=BarType.from_str("KRW-BTC.UPBIT-1-SECOND-LAST-EXTERNAL"),
+    period_k=420,
+    period_d=30,
     ma_type=MovingAverageType.EXPONENTIAL,
-    ma_period_k=10,
-    ma_period_d=5,
+    ma_period_k=90,
+    ma_period_d=90,
     trade_size=Decimal("10"),
     close_positions_on_stop=True,
     order_id_tag="001",
